@@ -46,9 +46,9 @@ VERILOG_TARGET_SOURCES += \
 VERILOG_CONTROLLER_SOURCES += \
     $(SRC_DIR)/hci/dxt.sv \
     $(SRC_DIR)/hci/hci.sv \
-    $(SRC_DIR)/libs/mem/prim_ram_1p_pkg.sv \
-    $(SRC_DIR)/libs/mem/prim_generic_ram_1p.sv \
-    $(SRC_DIR)/libs/mem/prim_ram_1p.sv \
-    $(SRC_DIR)/libs/mem/prim_ram_1p_adv.sv
+    $(SRC_DIR)/libs/mem/prim_ram_1p_pkg_i3ccore.sv \
+    $(SRC_DIR)/libs/mem/prim_generic_ram_1p_i3ccore.sv \
+    $(SRC_DIR)/libs/mem/prim_ram_1p_i3ccore.sv \
+    $(SRC_DIR)/libs/mem/prim_ram_1p_adv_i3ccore.sv
 
 include $(TEST_DIR)/../block_common.mk

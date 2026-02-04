@@ -13,6 +13,12 @@ module i3c_wrapper #(
 `ifdef AXI_ID_FILTERING
     parameter int unsigned NumPrivIds = `NUM_PRIV_IDS,
 `endif
+`elsif I3C_USE_AXI_LITE
+    parameter int unsigned AxiLiteDataWidth = 32,
+    parameter int unsigned AxiLiteAddrWidth = 32,
+`elsif I3C_USE_APB
+    parameter int unsigned ApbDataWidth = 32,
+    parameter int unsigned ApbAddrWidth = 32,
 `endif
     parameter int unsigned DatAw = i3c_pkg::DatAw,
     parameter int unsigned DctAw = i3c_pkg::DctAw,
@@ -101,6 +107,49 @@ module i3c_wrapper #(
     input logic disable_id_filtering_i,
     input logic [AxiUserWidth-1:0] priv_ids_i [NumPrivIds],
 `endif
+`elsif I3C_USE_AXI_LITE
+    // AXI4-Lite Interface
+    // Write Address Channel
+    input  logic                           awvalid_i,
+    output logic                           awready_o,
+    input  logic [AxiLiteAddrWidth-1:0]    awaddr_i,
+    input  logic [2:0]                     awprot_i,
+
+    // Write Data Channel
+    input  logic                           wvalid_i,
+    output logic                           wready_o,
+    input  logic [AxiLiteDataWidth-1:0]    wdata_i,
+    input  logic [AxiLiteDataWidth/8-1:0]  wstrb_i,
+
+    // Write Response Channel
+    output logic                           bvalid_o,
+    input  logic                           bready_i,
+    output logic [1:0]                     bresp_o,
+
+    // Read Address Channel
+    input  logic                           arvalid_i,
+    output logic                           arready_o,
+    input  logic [AxiLiteAddrWidth-1:0]    araddr_i,
+    input  logic [2:0]                     arprot_i,
+
+    // Read Data Channel
+    output logic                           rvalid_o,
+    input  logic                           rready_i,
+    output logic [AxiLiteDataWidth-1:0]    rdata_o,
+    output logic [1:0]                     rresp_o,
+
+`elsif I3C_USE_APB
+    // APB4 Interface
+    input  logic                       psel_i,
+    input  logic                       penable_i,
+    input  logic                       pwrite_i,
+    input  logic [ApbAddrWidth-1:0]    paddr_i,
+    input  logic [ApbDataWidth-1:0]    pwdata_i,
+    input  logic [ApbDataWidth/8-1:0]  pstrb_i,
+    output logic [ApbDataWidth-1:0]    prdata_o,
+    output logic                       pready_o,
+    output logic                       pslverr_o,
+
 `endif
 
     // I3C bus driver signals
@@ -143,9 +192,15 @@ module i3c_wrapper #(
       .AxiAddrWidth(AxiAddrWidth),
       .AxiUserWidth(AxiUserWidth),
       .AxiIdWidth(AxiIdWidth),
-`endif
 `ifdef AXI_ID_FILTERING
       .NumPrivIds(NumPrivIds),
+`endif
+`elsif I3C_USE_AXI_LITE
+      .AxiLiteDataWidth(AxiLiteDataWidth),
+      .AxiLiteAddrWidth(AxiLiteAddrWidth),
+`elsif I3C_USE_APB
+      .ApbDataWidth(ApbDataWidth),
+      .ApbAddrWidth(ApbAddrWidth),
 `endif
       .CsrDataWidth(CsrDataWidth),
       .CsrAddrWidth(CsrAddrWidth),
@@ -217,6 +272,48 @@ module i3c_wrapper #(
       .disable_id_filtering_i(disable_id_filtering_i),
       .priv_ids_i(priv_ids_i),
 `endif
+`elsif I3C_USE_AXI_LITE
+      // AXI4-Lite Write Address Channel
+      .awvalid_i(awvalid_i),
+      .awready_o(awready_o),
+      .awaddr_i(awaddr_i),
+      .awprot_i(awprot_i),
+
+      // AXI4-Lite Write Data Channel
+      .wvalid_i(wvalid_i),
+      .wready_o(wready_o),
+      .wdata_i(wdata_i),
+      .wstrb_i(wstrb_i),
+
+      // AXI4-Lite Write Response Channel
+      .bvalid_o(bvalid_o),
+      .bready_i(bready_i),
+      .bresp_o(bresp_o),
+
+      // AXI4-Lite Read Address Channel
+      .arvalid_i(arvalid_i),
+      .arready_o(arready_o),
+      .araddr_i(araddr_i),
+      .arprot_i(arprot_i),
+
+      // AXI4-Lite Read Data Channel
+      .rvalid_o(rvalid_o),
+      .rready_i(rready_i),
+      .rdata_o(rdata_o),
+      .rresp_o(rresp_o),
+
+`elsif I3C_USE_APB
+      // APB4 Interface
+      .psel_i(psel_i),
+      .penable_i(penable_i),
+      .pwrite_i(pwrite_i),
+      .paddr_i(paddr_i),
+      .pwdata_i(pwdata_i),
+      .pstrb_i(pstrb_i),
+      .prdata_o(prdata_o),
+      .pready_o(pready_o),
+      .pslverr_o(pslverr_o),
+
 `endif
 
       .i3c_scl_i  (scl_i),
@@ -243,7 +340,7 @@ module i3c_wrapper #(
   );
 
 `ifdef CONTROLLER_SUPPORT
-  prim_ram_1p_adv #(
+  prim_ram_1p_adv_i3ccore #(
       .Depth(`DAT_DEPTH),
       .Width(64),
       .DataBitsPerMask(32)
@@ -261,7 +358,7 @@ module i3c_wrapper #(
       .cfg_i('0)  // Unused
   );
 
-  prim_ram_1p_adv #(
+  prim_ram_1p_adv_i3ccore #(
       .Depth(`DCT_DEPTH),
       .Width(128),
       .DataBitsPerMask(32)

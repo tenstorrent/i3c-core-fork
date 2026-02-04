@@ -23,7 +23,7 @@ VERILOG_SOURCES += \
     $(SRC_DIR)/csr/I3CCSR_pkg.sv \
     $(SRC_DIR)/csr/I3CCSR.sv \
     $(CALIPTRA_ROOT)/src/caliptra_prim/rtl/caliptra_prim_count_pkg.sv \
-    $(CALIPTRA_ROOT)/src/axi/rtl/axi_pkg.sv \
+    $(CALIPTRA_ROOT)/src/axi/rtl/i3ccore_axi_pkg.sv \
     $(CALIPTRA_ROOT)/src/axi/rtl/axi_if.sv \
     $(CALIPTRA_ROOT)/src/axi/rtl/axi_addr.v \
     $(CALIPTRA_ROOT)/src/libs/rtl/skidbuffer.v \
@@ -51,9 +51,9 @@ VERILOG_TARGET_SOURCES += \
 VERILOG_CONTROLLER_SOURCES += \
     $(SRC_DIR)/hci/dxt.sv \
     $(SRC_DIR)/hci/hci.sv \
-    $(SRC_DIR)/libs/mem/prim_ram_1p_pkg.sv \
-    $(SRC_DIR)/libs/mem/prim_generic_ram_1p.sv \
-    $(SRC_DIR)/libs/mem/prim_ram_1p.sv \
-    $(SRC_DIR)/libs/mem/prim_ram_1p_adv.sv
+    $(SRC_DIR)/libs/mem/prim_ram_1p_pkg_i3ccore.sv \
+    $(SRC_DIR)/libs/mem/prim_generic_ram_1p_i3ccore.sv \
+    $(SRC_DIR)/libs/mem/prim_ram_1p_i3ccore.sv \
+    $(SRC_DIR)/libs/mem/prim_ram_1p_adv_i3ccore.sv
 
 include $(TEST_DIR)/../block_common.mk

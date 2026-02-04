@@ -164,7 +164,7 @@ module controller_standby_i2c
   logic unused_event_unexp_stop_o;
   logic unused_event_host_timeout_o;
 
-  i2c_target_fsm #(
+  i3ccore_i2c_target_fsm #(
       .AcqFifoDepth(AcqFifoDepth)
   ) xi2c_target_fsm (
       // Clock, reset

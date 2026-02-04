@@ -219,7 +219,7 @@ module controller_active
   logic unused_event_sda_unstable_o;
   logic unused_event_cmd_complete_o;
 
-  i2c_controller_fsm i2c_fsm (
+  i3ccore_i2c_controller_fsm i2c_fsm (
       .clk_i (clk_i),
       .rst_ni(rst_ni),
       .scl_i (ctrl_bus_i[0].scl.value),

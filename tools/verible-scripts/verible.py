@@ -5,10 +5,10 @@ import os
 import sys
 
 EXCLUDE_FILES = [
-    "prim_ram_1p_adv.sv",
-    "prim_ram_1p_pkg.sv",
-    "prim_ram_1p.sv",
-    "prim_generic_ram_1p.sv",
+    "prim_ram_1p_adv_i3ccore.sv",
+    "prim_ram_1p_pkg_i3ccore.sv",
+    "prim_ram_1p_i3ccore.sv",
+    "prim_generic_ram_1p_i3ccore.sv",
 ]
 
 EXCLUDE_DIRS = ["html", "md", ".nox", "obj_dir", "__pycache__", "axi", "csr"]

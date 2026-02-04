@@ -4,7 +4,7 @@
 //
 // Description: I2C finite state machine
 
-module i2c_target_fsm
+module i3ccore_i2c_target_fsm
   import controller_pkg::*;
 #(
     parameter int AcqFifoDepth = 64,

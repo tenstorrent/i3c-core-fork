@@ -15,7 +15,7 @@ ${I3C_ROOT_DIR}/src/ctrl/edge_detector.sv
 ${I3C_ROOT_DIR}/src/ctrl/descriptor_rx.sv
 ${I3C_ROOT_DIR}/src/ctrl/descriptor_tx.sv
 ${I3C_ROOT_DIR}/src/ctrl/descriptor_ibi.sv
-${I3C_ROOT_DIR}/src/ctrl/i2c_target_fsm.sv
+${I3C_ROOT_DIR}/src/ctrl/i3ccore_i2c_target_fsm.sv
 ${I3C_ROOT_DIR}/src/ctrl/i3c_target_fsm.sv
 ${I3C_ROOT_DIR}/src/ctrl/flow_standby_i2c.sv
 ${I3C_ROOT_DIR}/src/ctrl/controller_standby_i2c.sv

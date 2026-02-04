@@ -33,6 +33,12 @@ module i3c
 `ifdef AXI_ID_FILTERING
     parameter int unsigned NumPrivIds = `NUM_PRIV_IDS,
 `endif
+`elsif I3C_USE_AXI_LITE
+    parameter int unsigned AxiLiteDataWidth = 32,
+    parameter int unsigned AxiLiteAddrWidth = 32,
+`elsif I3C_USE_APB
+    parameter int unsigned ApbDataWidth = 32,
+    parameter int unsigned ApbAddrWidth = 32,
 `endif
     parameter int unsigned DatAw = i3c_pkg::DatAw,
     parameter int unsigned DctAw = i3c_pkg::DctAw,
@@ -180,6 +186,49 @@ module i3c
     input logic disable_id_filtering_i,
     input logic [AxiUserWidth-1:0] priv_ids_i [NumPrivIds],
 `endif
+`elsif I3C_USE_AXI_LITE
+    // AXI4-Lite Interface
+    // Write Address Channel
+    input  logic                           awvalid_i,
+    output logic                           awready_o,
+    input  logic [AxiLiteAddrWidth-1:0]    awaddr_i,
+    input  logic [2:0]                     awprot_i,
+
+    // Write Data Channel
+    input  logic                           wvalid_i,
+    output logic                           wready_o,
+    input  logic [AxiLiteDataWidth-1:0]    wdata_i,
+    input  logic [AxiLiteDataWidth/8-1:0]  wstrb_i,
+
+    // Write Response Channel
+    output logic                           bvalid_o,
+    input  logic                           bready_i,
+    output logic [1:0]                     bresp_o,
+
+    // Read Address Channel
+    input  logic                           arvalid_i,
+    output logic                           arready_o,
+    input  logic [AxiLiteAddrWidth-1:0]    araddr_i,
+    input  logic [2:0]                     arprot_i,
+
+    // Read Data Channel
+    output logic                           rvalid_o,
+    input  logic                           rready_i,
+    output logic [AxiLiteDataWidth-1:0]    rdata_o,
+    output logic [1:0]                     rresp_o,
+
+`elsif I3C_USE_APB
+    // APB4 Interface
+    input  logic                       psel_i,
+    input  logic                       penable_i,
+    input  logic                       pwrite_i,
+    input  logic [ApbAddrWidth-1:0]    paddr_i,
+    input  logic [ApbDataWidth-1:0]    pwdata_i,
+    input  logic [ApbDataWidth/8-1:0]  pstrb_i,
+    output logic [ApbDataWidth-1:0]    prdata_o,
+    output logic                       pready_o,
+    output logic                       pslverr_o,
+
 `endif
 
     // I3C bus IO
@@ -464,6 +513,92 @@ module i3c
       .disable_id_filtering_i(disable_id_filtering_i),
       .priv_ids_i(priv_ids_i),
 `endif
+
+      // I3C SW CSR access interface
+      .s_cpuif_req(s_cpuif_req),
+      .s_cpuif_req_is_wr(s_cpuif_req_is_wr),
+      .s_cpuif_addr(s_cpuif_addr),
+      .s_cpuif_wr_data(s_cpuif_wr_data),
+      .s_cpuif_wr_biten(s_cpuif_wr_biten),
+      .s_cpuif_req_stall_wr(s_cpuif_req_stall_wr),
+      .s_cpuif_req_stall_rd(s_cpuif_req_stall_rd),
+      .s_cpuif_rd_ack(s_cpuif_rd_ack),
+      .s_cpuif_rd_err(s_cpuif_rd_err),
+      .s_cpuif_rd_data(s_cpuif_rd_data),
+      .s_cpuif_wr_ack(s_cpuif_wr_ack),
+      .s_cpuif_wr_err(s_cpuif_wr_err)
+  );
+
+`elsif I3C_USE_AXI_LITE
+  axi_lite_adapter #(
+      .AxiLiteDataWidth(AxiLiteDataWidth),
+      .AxiLiteAddrWidth(AxiLiteAddrWidth)
+  ) i3c_axi_lite_if (
+      .clk_i (clk_i),
+      .rst_ni(rst_ni),
+
+      // AXI4-Lite Write Address Channel
+      .awvalid_i(awvalid_i),
+      .awready_o(awready_o),
+      .awaddr_i(awaddr_i),
+      .awprot_i(awprot_i),
+
+      // AXI4-Lite Write Data Channel
+      .wvalid_i(wvalid_i),
+      .wready_o(wready_o),
+      .wdata_i(wdata_i),
+      .wstrb_i(wstrb_i),
+
+      // AXI4-Lite Write Response Channel
+      .bvalid_o(bvalid_o),
+      .bready_i(bready_i),
+      .bresp_o(bresp_o),
+
+      // AXI4-Lite Read Address Channel
+      .arvalid_i(arvalid_i),
+      .arready_o(arready_o),
+      .araddr_i(araddr_i),
+      .arprot_i(arprot_i),
+
+      // AXI4-Lite Read Data Channel
+      .rvalid_o(rvalid_o),
+      .rready_i(rready_i),
+      .rdata_o(rdata_o),
+      .rresp_o(rresp_o),
+
+      // I3C SW CSR access interface
+      .s_cpuif_req(s_cpuif_req),
+      .s_cpuif_req_is_wr(s_cpuif_req_is_wr),
+      .s_cpuif_addr(s_cpuif_addr),
+      .s_cpuif_wr_data(s_cpuif_wr_data),
+      .s_cpuif_wr_biten(s_cpuif_wr_biten),
+      .s_cpuif_req_stall_wr(s_cpuif_req_stall_wr),
+      .s_cpuif_req_stall_rd(s_cpuif_req_stall_rd),
+      .s_cpuif_rd_ack(s_cpuif_rd_ack),
+      .s_cpuif_rd_err(s_cpuif_rd_err),
+      .s_cpuif_rd_data(s_cpuif_rd_data),
+      .s_cpuif_wr_ack(s_cpuif_wr_ack),
+      .s_cpuif_wr_err(s_cpuif_wr_err)
+  );
+
+`elsif I3C_USE_APB
+  apb_adapter #(
+      .ApbDataWidth(ApbDataWidth),
+      .ApbAddrWidth(ApbAddrWidth)
+  ) i3c_apb_if (
+      .clk_i (clk_i),
+      .rst_ni(rst_ni),
+
+      // APB4 Slave Interface
+      .psel_i(psel_i),
+      .penable_i(penable_i),
+      .pwrite_i(pwrite_i),
+      .paddr_i(paddr_i),
+      .pwdata_i(pwdata_i),
+      .pstrb_i(pstrb_i),
+      .prdata_o(prdata_o),
+      .pready_o(pready_o),
+      .pslverr_o(pslverr_o),
 
       // I3C SW CSR access interface
       .s_cpuif_req(s_cpuif_req),
