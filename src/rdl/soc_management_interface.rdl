@@ -387,4 +387,14 @@ regfile SoCManagementInterfaceRegisters {
             reset = 32'h0000EA60;
         } T_IDLE[31:0];
     } T_IDLE_REG;
+    reg {
+        name = "System Clock Frequency";
+        field {
+            name = "SYS_CLK_FREQ";
+            desc = "System clock frequency in MHz (used for I3C PP mode timing calculation). Valid values: 100, 200, 400.";
+            sw = rw;
+            hw = r;
+            reset = 16'd100;  // Default 100 MHz
+        } SYS_CLK_FREQ[15:0];
+    } SYS_CLK_FREQ_REG;
 };

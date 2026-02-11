@@ -76,7 +76,7 @@
         "FrontendBusInterface": {
             "description": "Bus protocol to be utilized for the I3C Core <-> System integration.",
             "type": "string",
-            "pattern": "^(AHB|AXI)$"
+            "pattern": "^(AHB|AXI|AXI_LITE|APB)$"
         },
         "FrontendBusAddrWidth": {
             "description": "I3C Core <-> System bus address width in bits.",
@@ -161,7 +161,7 @@
     "else": {
         "properties": {
             "FrontendBusInterface": {
-                "const": "AHB"
+                "enum": ["AHB", "AXI_LITE", "APB"]
             }
         },
         "allOf": [

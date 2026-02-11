@@ -119,7 +119,16 @@ module controller_active
     input logic [19:0] t_f_i,
     input logic [19:0] t_bus_free_i,
     input logic [19:0] t_bus_idle_i,
-    input logic [19:0] t_bus_available_i
+    input logic [19:0] t_bus_available_i,
+
+    // Additional timing inputs for I3C controller
+    input logic [19:0] t_high_i,
+    input logic [19:0] t_low_i,
+    input logic [19:0] t_hd_sta_i,
+    input logic [19:0] t_su_sta_i,
+    input logic [19:0] t_su_sto_i,
+    input logic [19:0] t_su_dat_i,
+    input logic [15:0] sys_clk_freq_i
 
 );
 
@@ -137,6 +146,9 @@ module controller_active
   logic unhandled_nak_timeout;
   logic rx_fifo_wvalid;
   logic [RxFifoWidth-1:0] rx_fifo_wdata;
+
+  // I3C transfer mode from flow FSM
+  i3c_trans_mode_e i3c_trans_mode;
 
   // TODO: Connect I2C Controller SDA/SCL to I3C Flow FSM
 
@@ -206,6 +218,7 @@ module controller_active
       .rx_fifo_wdata_i(rx_fifo_wdata),
       .i3c_fsm_en_i,
       .i3c_fsm_idle_o,
+      .i3c_trans_mode_o(i3c_trans_mode),
       .err,
       .irq
   );
@@ -276,17 +289,63 @@ module controller_active
       .event_cmd_complete_o(unused_event_cmd_complete_o)
   );
 
-  // TODO: Handle i3c waveform
+  // I3C Controller FSM - unused signals
+  logic unused_i3c_host_idle;
+  logic unused_i3c_tx_ready;
+  logic unused_i3c_rx_valid;
+  logic [7:0] unused_i3c_rx_data;
+  logic unused_i3c_cmd_done;
+
   i3c_controller_fsm xi3c_controller_fsm (
       .clk_i(clk_i),
       .rst_ni(rst_ni),
+
+      // I3C Bus interface
       .ctrl_scl_i(ctrl_bus_i[1].scl.value),
       .ctrl_sda_i(ctrl_bus_i[1].sda.value),
       .ctrl_scl_o(ctrl_scl_o[1]),
-      .ctrl_sda_o(ctrl_sda_o[1])
+      .ctrl_sda_o(ctrl_sda_o[1]),
+
+      // Mode selection
+      .od_pp_mode_i(1'b0),  // TODO: Control from flow FSM
+      .sel_od_pp_o(phy_sel_od_pp_o[1]),
+
+      // PP mode timing inputs
+      .sys_clk_freq_i(sys_clk_freq_i),
+      .mode_i(i3c_trans_mode),
+
+      // OD mode timing inputs (from CSRs)
+      .thigh_i(t_high_i),
+      .tlow_i(t_low_i),
+      .t_r_i(t_r_i),
+      .t_f_i(t_f_i),
+      .thd_sta_i(t_hd_sta_i),
+      .tsu_sta_i(t_su_sta_i),
+      .tsu_sto_i(t_su_sto_i),
+      .tsu_dat_i(t_su_dat_i),
+      .thd_dat_i(t_hd_dat_i),
+      .t_buf_i(t_bus_free_i),
+
+      // Control interface
+      .host_enable_i(host_enable),
+      .host_idle_o(unused_i3c_host_idle),
+
+      // Data interface - TODO: Connect to flow FSM
+      .tx_valid_i(1'b0),
+      .tx_data_i(8'h00),
+      .tx_ready_o(unused_i3c_tx_ready),
+      .rx_valid_o(unused_i3c_rx_valid),
+      .rx_data_o(unused_i3c_rx_data),
+      .rx_ready_i(1'b0),
+
+      // Command interface - TODO: Connect to flow FSM
+      .start_cmd_i(1'b0),
+      .stop_cmd_i(1'b0),
+      .tx_cmd_i(1'b0),
+      .rx_cmd_i(1'b0),
+      .cmd_done_o(unused_i3c_cmd_done)
   );
 
   // TODO: Handle driver switching in the active controller mode
   assign phy_sel_od_pp_o[0] = '0;
-  assign phy_sel_od_pp_o[1] = '0;
 endmodule
