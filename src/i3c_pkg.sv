@@ -259,4 +259,11 @@ package i3c_pkg;
     target_dev_id_value_t vendor_random_value;
   } target_dev_provisioned_id_t;
 
+  typedef enum logic [1:0] {
+    None,
+    Stop,
+    Start,
+    RepeatedStart
+  } start_stop_e;
+
 endpackage

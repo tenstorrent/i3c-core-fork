@@ -321,6 +321,8 @@ module i3c_wrapper #(
       .i3c_sda_i  (sda_i),
       .i3c_sda_o  (sda_o),
       .sel_od_pp_o(sel_od_pp_o),
+      .i3c_sda_oe_o(sda_oe),
+      .i3c_scl_oe_o(scl_oe),
 
 `ifdef CONTROLLER_SUPPORT
       .dat_mem_src_i (dat_mem_src),
@@ -376,19 +378,5 @@ module i3c_wrapper #(
       .cfg_i('0)  // Unused
   );
 `endif // CONTROLLER_SUPPORT
-
-/*
-  Truth table.
-
-  sel_od_pp_o | sda_o  || sda_oe | IO state
-  ------------+--------++--------+-----------
-       0      |   0    ||   1    |    0
-       0      |   1    ||   0    |   hi-z
-       1      |   0    ||   1    |    0
-       1      |   1    ||   1    |    1
-*/
-
-  assign sda_oe = sel_od_pp_o || !sda_o;
-  assign scl_oe = 1'b0;
 
 endmodule

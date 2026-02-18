@@ -253,7 +253,11 @@ module controller
     output logic err_o,
     input  logic recovery_mode_enter_i,
     output logic virtual_device_sel_o,
-    output logic xfer_in_progress_o
+    output logic xfer_in_progress_o,
+
+    // Configuration outputs for PHY control
+    output logic i3c_active_en_o,
+    output logic i3c_standby_en_o
 );
 
   logic phy_en;
@@ -629,5 +633,9 @@ always_comb begin
   ctrl_sel_od_pp_i[3] = 1'b0;
 end
 `endif  // TARGET_SUPPORT
+
+  // Route configuration signals to top level for PHY control
+  assign i3c_active_en_o = i3c_active_en;
+  assign i3c_standby_en_o = i3c_standby_en;
 
 endmodule

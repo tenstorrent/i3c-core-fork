@@ -243,6 +243,10 @@ module i3c
 
     output logic sel_od_pp_o,  // 0 - Open Drain, 1 - Push Pull
 
+    // Output enable signals for I3C bus drivers
+    output logic i3c_sda_oe_o,  // SDA output enable
+    output logic i3c_scl_oe_o,  // SCL output enable
+
 `ifdef CONTROLLER_SUPPORT
     // DAT memory export interface
     input  dat_mem_src_t  dat_mem_src_i,
@@ -924,7 +928,10 @@ module i3c
       .err_o(controller_error),
       .recovery_mode_enter_i(recovery_mode_enter),
       .virtual_device_sel_o(virtual_device_sel),
-      .xfer_in_progress_o(xfer_in_progress)
+      .xfer_in_progress_o(xfer_in_progress),
+
+      .i3c_active_en_o(i3c_active_en),
+      .i3c_standby_en_o(i3c_standby_en)
   );
 
   // HCI
@@ -1436,5 +1443,20 @@ module i3c
 
   // Aggregate interrupts
   assign irq_o = ctl_irq | tti_irq | recovery_irq;
+
+  /*
+    Truth table for SDA output enable.
+
+    sel_od_pp_o | i3c_sda_o || i3c_sda_oe_o | IO state
+    ------------+-----------++------------+-----------
+         0      |     0     ||      1      |    0
+         0      |     1     ||      0      |   hi-z
+         1      |     0     ||      1      |    0
+         1      |     1     ||      1      |    1
+  */
+  assign i3c_sda_oe_o = sel_od_pp_o || !i3c_sda_o;
+
+  // SCL is only driven by controller
+  assign i3c_scl_oe_o = i3c_active_en && (sel_od_pp_o || !i3c_scl_o);
 
 endmodule
