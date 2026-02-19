@@ -107,7 +107,7 @@ module flow_active
     output start_stop_e i3c_start_stop_o,   // Start/Stop/Repeated Start indication for current byte
     output logic       i3c_tx_is_addr_o,     // This is address byte (open-drain, expects ACK)
     output logic       i3c_tx_use_tbit_o,    // Add T-bit after byte (push-pull I3C mode)
-    input  logic       i3c_rx_ack_i,         // ACK received (valid when i3c_tx_done_i && i3c_tx_is_addr_o)
+    input  logic       i3c_rx_ack_i,         // ACK received (valid when i3c_tx_ready_i && i3c_tx_is_addr_o)
     input  logic       i3c_rx_nack_i,        // NACK received
 
     // I3C RX interface - bytes received from i3c_controller_fsm
@@ -127,50 +127,45 @@ module flow_active
 );
 
   assign dct_write_valid_hw_o = '0;
-  // rx_queue_wvalid_o is now controlled by the I3CPrivateRead state logic
+  // rx_queue_wvalid_o is now controlled by the I3CDataRead/PushRxData state logic
   assign ibi_queue_wvalid_o = '0;
   assign err = '0;
   assign irq = '0;
 
   // TODO: do we need separate i2c fsm states?
-  typedef enum logic [4:0] {
-    Idle = 5'd0,
-    WaitForCmd = 5'd1,
-    FetchDAT = 5'd2,
-    I2CWriteImmediate = 5'd3,
-    I3CWriteImmediate = 5'd4,
-    FetchTxData = 5'd5,
-    PushRxData = 5'd6,
-    InitI2CWrite = 5'd7,
-    InitI2CRead = 5'd8,
-    StallWrite = 5'd9,
-    StallRead = 5'd10,
-    IssueCmd = 5'd11,
-    WriteResp = 5'd12,
-    I3CAddressAssignment = 5'd13,
-    I3CPrivateWrite = 5'd14,
-    I3CPrivateRead = 5'd15
+  typedef enum logic [5:0] {
+    Idle = 6'd0,
+    WaitForCmd = 6'd1,
+    FetchDAT = 6'd2,
+    I2CWriteImmediate = 6'd3,
+    // I3CWriteImmediate removed - uses BroadcastAddr → TargetAddr → I3CDataWrite
+    FetchTxData = 6'd5,
+    PushRxData = 6'd6,
+    InitI2CWrite = 6'd7,
+    InitI2CRead = 6'd8,
+    StallWrite = 6'd9,
+    StallRead = 6'd10,
+    // IssueCmd removed - merged into unified FSM
+    WriteResp = 6'd12,
+    I3CAddressAssignment = 6'd13,
+    I3CDataWrite = 6'd14,       // DATA PHASE ONLY (also used by ImmediateDataTransfer)
+    I3CDataRead = 6'd15,        // DATA PHASE ONLY
+    // Shared Address States (used by CCC, private, and immediate transfers)
+    BroadcastAddr = 6'd16,      // S/Sr + 0x7E/W
+    TargetAddr = 6'd17,         // Sr + Target Addr + RnW
+    // CCC-specific States
+    CCC_SendCCCCode = 6'd18,    // CCC code + T-bit
+    CCC_DefiningByte = 6'd19    // Optional defining byte + T-bit
   } flow_fsm_state_e;
 
 
-  // TODO: maybe merge these states into flow_fsm_State_e?
-  // CCC sub-FSM states (only meaningful when flow_state == IssueCCC)
-  typedef enum logic [3:0] {
-    CCC_Idle,
-    CCC_BroadcastAddr,    // S + 7'h7E/W
-    CCC_SendCCCCode,      // CCC code + T
-    CCC_DefiningByte,     // Optional defining byte + T
-    CCC_TargetAddr,       // Sr + Target Addr + RnW
-    CCC_WaitFetch,        // Wait for RX/TX data from queue (only for cmd_attr == RegularTransfers)
-    CCC_Data,             // Subcommand/Data bytes + T
-    CCC_Done
-  } ccc_fsm_state_e;
+  // CCC FSM merged into main flow_fsm_state_e - no separate enum needed
 
-  // TODO: Set BytesBeforeImmData from the HC_CONTROL.IBA_INCLUDE
-  localparam int unsigned BytesBeforeImmData = 1;  // 1 if IBA is disabled, otherwise 2
+  // BytesBeforeImmData only used by I2CWriteImmediate (legacy I2C path)
+  // TODO: Set from HC_CONTROL.IBA_INCLUDE: 1 if IBA is disabled, otherwise 2
+  localparam int unsigned BytesBeforeImmData = 1;
 
   flow_fsm_state_e state, state_next;
-  ccc_fsm_state_e ccc_state, ccc_state_next;
 
   immediate_data_trans_desc_t immediate_cmd_desc;
   regular_trans_desc_t regular_cmd_desc;
@@ -195,8 +190,6 @@ module flow_active
   logic [31:0] transfer_cnt;
   logic transfer_cnt_en;
   logic transfer_cnt_rst;
-  logic [31:0] transfer_cnt_rst_val;
-  logic [31:0] transfer_cnt_rst_val_next;
 
   logic [HciCmdDataWidth-1:0] cmd_queue_rdata;
   logic cmd_queue_rvalid;
@@ -315,7 +308,8 @@ module flow_active
   end
 
   always_comb begin
-    unique case ((transfer_cnt - 32'd2) & 32'd3)
+    // Counter now starts at 0 for data phase (address phases in separate states)
+    unique case (transfer_cnt & 32'd3)
       32'd0: tx_data_byte = (cmd_attr == ImmediateDataTransfer) ? immediate_cmd_desc.def_or_data_byte1 : tx_dword[7:0];
       32'd1: tx_data_byte = (cmd_attr == ImmediateDataTransfer) ? immediate_cmd_desc.data_byte2        : tx_dword[15:8];
       32'd2: tx_data_byte = (cmd_attr == ImmediateDataTransfer) ? immediate_cmd_desc.data_byte3        : tx_dword[23:16];
@@ -370,17 +364,14 @@ module flow_active
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (~rst_ni) begin
       transfer_cnt <= '0;
-      transfer_cnt_rst_val <= '0;
     end else begin
       if (transfer_cnt_rst) begin
-        transfer_cnt <= transfer_cnt_rst_val;
+        transfer_cnt <= '0;  // Always reset to 0 (transfer_cnt_rst_val eliminated)
       end else if (transfer_cnt_en) begin
         transfer_cnt <= transfer_cnt + 1;
       end else begin
         transfer_cnt <= transfer_cnt;
       end
-
-      transfer_cnt_rst_val <= transfer_cnt_rst_val_next;
     end
   end
 
@@ -470,7 +461,6 @@ module flow_active
     tx_queue_rready_o = 1'b0;
     pop_tx_fifo = 1'b0;
     transfer_cnt_rst = 1'b1;
-    transfer_cnt_rst_val_next = transfer_cnt_rst_val;
     fmt_fifo_rvalid_o = 1'b0;
     fmt_flag_start_before_o = 1'b0;
     resp_queue_wvalid_o = 1'b0;
@@ -553,56 +543,11 @@ module flow_active
           fmt_fifo_rvalid_o = 1'b0;
         end
       end
-      // I3CWriteImmediate: Execute Immediate Transfer to I3C Device
-      I3CWriteImmediate: begin
-        transfer_cnt_rst = 1'b0;
-        transfer_cnt_en = i3c_tx_done_i;
-        i3c_tx_valid_o = 1'b1; // valid all the time since all the data is in the commmand descriptor
-
-        unique case (transfer_cnt) begin
-          32d'0: begin
-            // Send broadcast address 0x7E + Write (0 is write) with START or Sr
-            i3c_tx_byte_o = {`I3C_RSVD_ADDR, 1'b0};
-            i3c_start_stop_o = bus_active_q ? RepeatedStart : Start;
-            bus_active_d = 1'b1;  // Bus is now active
-            i3c_tx_is_addr_o = 1'b1;  // Open-drain, expects ACK
-          end
-          32'd1: begin
-            // Send target address + Write (0 is write)
-            i3c_tx_byte_o = {dat_rdata.dynamic_address, 1'b0};
-            i3c_tx_use_tbit_o = 1'b1;
-          end
-          32'd2: begin
-            // Byte 1
-            i3c_tx_byte_o = imm_use_def_byte ? immediate_cmd_desc.data_byte2
-                                                 : immediate_cmd_desc.def_or_data_byte1;
-            i3c_tx_use_tbit_o = 1'b1;
-          end
-          32'd3: begin
-            // Byte 2
-            i3c_tx_byte_o = imm_use_def_byte ? immediate_cmd_desc.data_byte3
-                                                 : immediate_cmd_desc.data_byte2;
-            i3c_tx_use_tbit_o = 1'b1;
-          end
-          32'd4: begin
-            // Byte 3
-            i3c_tx_byte_o = immediate_cmd_desc.data_byte3;
-            i3c_tx_use_tbit_o = 1'b1;
-          end
-          32'd5: begin
-            // Byte 4
-            i3c_tx_byte_o = immediate_cmd_desc.data_byte4;
-            i3c_tx_use_tbit_o = 1'b1;
-          end
-        end
-        
-      end
+      // I3CWriteImmediate removed - now uses BroadcastAddr → TargetAddr → I3CDataWrite
       FetchTxData: begin
         transfer_cnt_rst = 1'b0;
-        // Don't fetch data from TX FIFO for Immediate Data Transfer commands since the data is in the command descriptor itself. 
-        tx_queue_rready_o = (cmd_present && (cmd_attr == ImmediateDataTransfer) ) ? 1'b0 : !tx_queue_empty_i;
+        tx_queue_rready_o = !tx_queue_empty_i;
         pop_tx_fifo = tx_queue_rvalid_i && tx_queue_rready_o;
-        end
       end
       PushRxData: begin
         transfer_cnt_rst = 1'b0;
@@ -639,136 +584,106 @@ module flow_active
       StallRead: begin
         // TODO
       end
-      IssueCmd: begin
-        // TODO
-        // following I3C-Basic Specification 5.1.9.1 Figure 31
-        // this state doesn't do anything, work is in CCC substates
+      // BroadcastAddr: Send broadcast address 0x7E/W with START or Sr
+      // Shared by both CCC and private transfers
+      BroadcastAddr: begin
+        i3c_tx_byte_o = {`I3C_RSVD_ADDR, 1'b0};
+        i3c_tx_valid_o = 1'b1;
+        i3c_start_stop_o = bus_active_q ? RepeatedStart : Start;
+        bus_active_d = 1'b1;  // Bus is now active
+        i3c_tx_is_addr_o = 1'b1;  // Open-drain, expects ACK
       end
 
-      // I3CAddressAssignment: Execute Address Assignment CCC (SETDASA, ENTDAA)
+      // TargetAddr: Send target address + RnW with Repeated Start
+      // Shared by both CCC direct and private transfers
+      TargetAddr: begin
+        i3c_tx_byte_o = {dat_rdata.dynamic_address[7:1], (cmd_dir == Read) ? 1'b1 : 1'b0};
+        i3c_tx_valid_o = 1'b1;
+        i3c_start_stop_o = RepeatedStart;
+        i3c_tx_is_addr_o = 1'b1;  // Open-drain, expects ACK
+      end
+
+      // CCC_SendCCCCode: Send CCC code byte with T-bit
+      CCC_SendCCCCode: begin
+        i3c_tx_byte_o = ccc_code;
+        i3c_tx_valid_o = 1'b1;
+        i3c_tx_use_tbit_o = 1'b1;
+      end
+
+      // CCC_DefiningByte: Send optional defining byte with T-bit
+      CCC_DefiningByte: begin
+        i3c_tx_byte_o = (cmd_attr == ImmediateDataTransfer) ?
+                        immediate_cmd_desc.def_or_data_byte1 :
+                        regular_cmd_desc.dbp;
+        i3c_tx_valid_o = 1'b1;
+        i3c_tx_use_tbit_o = 1'b1;
+      end
+
+      // I3CAddressAssignment: Address Assignment CCC (SETDASA, ENTDAA)
+      // Broadcast addr and CCC code handled by BroadcastAddr/CCC_SendCCCCode
+      // This state handles: Sr → StaticAddr/W → DynAddr → P
       I3CAddressAssignment: begin
-        // SETDASA frame: S → 0x7E/W → CCC → Sr → StaticAddr/W → DynAddr → P
-        // Uses addr_cmd_desc for dev_count and dev_idx
         transfer_cnt_rst = 1'b0;
-
-        //the i3c_controller_fsm.sv is responsible for triggering this i3c_tx_done_i signal when it is done sending each byte
-        transfer_cnt_en = i3c_tx_done_i;
-
-        i3c_tx_valid_o = 1'b1; // all the data is within the command descriptor
-
-        if(is_direct_ccc) begin
-          // Direct CCC - target device address is in dev_idx field
-          unique case (transfer_cnt)
-            32'd0: begin
-              // Send broadcast address 0x7E + Write (0 is write) with START or Sr
-              i3c_tx_byte_o = {`I3C_RSVD_ADDR, 1'b0};
-              i3c_start_stop_o = bus_active_q ? RepeatedStart : Start;
-              bus_active_d = 1'b1;  // Bus is now active
-              i3c_tx_is_addr_o = 1'b1;  // Open-drain, expects ACK
-            end
-            32'd1: begin
-              // Send CCC code (SETDASA = 0x87)
-              i3c_tx_byte_o = ccc_code;
-              i3c_tx_use_tbit_o = 1'b1;
-            end
-            32'd2: begin
-              // Send Repeated Start + Static Address + W
-              i3c_tx_byte_o = {dat_rdata.static_address, 1'b0};
-              i3c_start_stop_o = RepeatedStart;
-              i3c_tx_is_addr_o = 1'b1;  // Open-drain, expects ACK
-            end
-            32'd3: begin
-              // Send Dynamic Address (with odd parity in MSB) + T-bit, then STOP
-              i3c_tx_byte_o = dat_rdata.dynamic_address;
-              i3c_tx_use_tbit_o = 1'b1;
-              i3c_start_stop_o = Stop;  // STOP after this byte
-              bus_active_d = 1'b0;  // Bus released
-            end
-          endcase
-        end
-      end
-      // I3CPrivateWrite: Execute Private Write to I3C Device
-      // Frame: S → 0x7E/W → ACK → Sr → Addr/W → ACK → Data1 → T → ... → DataN → T → P
-      I3CPrivateWrite: begin
-        transfer_cnt_rst = 1'b0;
-        transfer_cnt_en = i3c_tx_done_i;
+        transfer_cnt_en = i3c_tx_ready_i;
         i3c_tx_valid_o = 1'b1;
 
         unique case (transfer_cnt)
           32'd0: begin
-            // Send broadcast address 0x7E + W with START or Sr
-            i3c_tx_byte_o = {`I3C_RSVD_ADDR, 1'b0};
-            i3c_start_stop_o = bus_active_q ? RepeatedStart : Start;
-            bus_active_d = 1'b1;  // Bus is now active
-            i3c_tx_is_addr_o = 1'b1;  // Open-drain, expects ACK
-          end
-          32'd1: begin
-            // Send Repeated Start + Target Dynamic Address + W
-            i3c_tx_byte_o = {dat_rdata.dynamic_address[7:1], 1'b0};
+            // Send Repeated Start + Static Address + W
+            i3c_tx_byte_o = {dat_rdata.static_address, 1'b0};
             i3c_start_stop_o = RepeatedStart;
             i3c_tx_is_addr_o = 1'b1;  // Open-drain, expects ACK
           end
+          32'd1: begin
+            // Send Dynamic Address + T-bit, then STOP
+            // TODO: Should send actual dynamic address from DAT, not static
+            i3c_tx_byte_o = dat_rdata.dynamic_address;
+            i3c_tx_use_tbit_o = 1'b1;
+            i3c_start_stop_o = Stop;
+            bus_active_d = 1'b0;  // Bus released
+          end
           default: begin
-            // Data phase: Send bytes from TX queue with T-bits (push-pull mode)
-            // Select byte from 32-bit tx_dword based on byte index within word
-
-            i3c_tx_byte_o = tx_data_byte;
-            i3c_tx_use_tbit_o = 1'b1;  // Push-pull mode with T-bit
-
-            // STOP after last data byte
-            if (transfer_cnt == data_length + 32'd1) begin
-              if (regular_cmd_desc.toc) begin
-                i3c_start_stop_o = Stop;
-                bus_active_d = 1'b0;  // Bus released
-              end
-            end
+            // Should not reach here
+            i3c_tx_byte_o = '0;
           end
         endcase
-
       end
-      // I3CPrivateRead: Execute Private Read from I3C Device
-      // Frame: S → 0x7E/W → ACK → Sr → Addr/R → ACK → Data1 → T → ... → DataN → T → P
-      I3CPrivateRead: begin
+      // I3CDataWrite: Data phase only - send bytes from TX queue or descriptor
+      // Address phases handled by BroadcastAddr and TargetAddr states
+      I3CDataWrite: begin
         transfer_cnt_rst = 1'b0;
+        transfer_cnt_en = i3c_tx_ready_i;
+        i3c_tx_valid_o = 1'b1;
+        i3c_tx_byte_o = tx_data_byte;  // Counter starts at 0 for data phase
+        i3c_tx_use_tbit_o = 1'b1;  // Push-pull mode with T-bit
 
-        unique case (transfer_cnt)
-          32'd0: begin
-            // Address phase: use i3c_tx_ready_i for counter
-            transfer_cnt_en = i3c_tx_ready_i;
-            // Send broadcast address 0x7E + W with START or Sr
-            i3c_tx_byte_o = {`I3C_RSVD_ADDR, 1'b0};
-            i3c_tx_valid_o = 1'b1;
-            i3c_start_stop_o = bus_active_q ? RepeatedStart : Start;
-            bus_active_d = 1'b1;  // Bus is now active
-            i3c_tx_is_addr_o = 1'b1;  // Open-drain, expects ACK
+        // STOP after last data byte if TOC is set
+        // Use appropriate toc field based on command attribute
+        if (transfer_cnt == data_length - 32'd1) begin
+          if ((cmd_attr == ImmediateDataTransfer) ? immediate_cmd_desc.toc : regular_cmd_desc.toc) begin
+            i3c_start_stop_o = Stop;
+            bus_active_d = 1'b0;  // Bus released
           end
-          32'd1: begin
-            // Address phase: use i3c_tx_ready_i for counter
-            transfer_cnt_en = i3c_tx_ready_i;
-            // Send Repeated Start + Target Dynamic Address + R (1 for read)
-            i3c_tx_byte_o = {dat_rdata.dynamic_address[7:1], 1'b1};  // R/W bit = 1 for read
-            i3c_tx_valid_o = 1'b1;
-            i3c_start_stop_o = RepeatedStart;
-            i3c_tx_is_addr_o = 1'b1;  // Open-drain, expects ACK
+        end
+      end
+      // I3CDataRead: Data phase only - receive bytes from target
+      // Address phases handled by BroadcastAddr and TargetAddr states
+      I3CDataRead: begin
+        transfer_cnt_rst = 1'b0;
+        transfer_cnt_en = i3c_rx_valid_i;
+        rx_data_phase_active = 1'b1;  // Enable shared RX accumulation
+
+        // Track received data length for response (counter starts at 0)
+        resp_data_length_q = 16'(transfer_cnt + 1);
+
+        // Issue STOP on last data byte if TOC bit is set
+        // Use appropriate toc field based on command attribute
+        if (transfer_cnt == data_length - 32'd1) begin
+          if ((cmd_attr == ImmediateDataTransfer) ? immediate_cmd_desc.toc : regular_cmd_desc.toc) begin
+            i3c_start_stop_o = Stop;
+            bus_active_d = 1'b0;  // Bus released
           end
-          default: begin
-            // Data phase: Receive bytes from target (shared RX accumulation logic)
-            transfer_cnt_en = i3c_rx_valid_i;
-            rx_data_phase_active = 1'b1;  // Enable shared RX accumulation
-
-            // Track received data length for response
-            resp_data_length_q = 16'(transfer_cnt - 32'd1);
-
-            // Issue STOP on last data byte if TOC bit is set
-            if (transfer_cnt == data_length + 32'd1) begin
-              if (regular_cmd_desc.toc) begin
-                i3c_start_stop_o = Stop;
-                bus_active_d = 1'b0;  // Bus released
-              end
-            end
-          end
-        endcase
-
+        end
       end
       // WriteResp: Generate Response Descriptor and load it to Response Queue
       WriteResp: begin
@@ -786,68 +701,6 @@ module flow_active
         resp_desc.err_status = i3c_resp_err_status_e'(0);
         resp_desc.tid = '0;
         resp_desc.data_length = '0;
-      end
-    endcase
-
-    unique case (ccc_state)
-      CCC_Idle: begin
-        // Do nothing
-      end
-      CCC_BroadcastAddr: begin
-        // Send broadcast address 0x7E + Write (0 is write) with START or Sr
-        i3c_tx_byte_o = {`I3C_RSVD_ADDR, 1'b0};
-        i3c_tx_valid_o = 1'b1;
-        i3c_start_stop_o = bus_active_q ? RepeatedStart : Start;
-        bus_active_d = 1'b1;  // Bus is now active
-        i3c_tx_is_addr_o = 1'b1;  // expects ACK
-      end
-      CCC_SendCCCCode: begin
-        // Send CCC code (SETDASA = 0x87)
-        i3c_tx_byte_o = ccc_code;
-        i3c_tx_valid_o = 1'b1;
-        i3c_tx_use_tbit_o = 1'b1;
-      end
-      CCC_DefiningByte: begin
-        i3c_tx_byte_o = cmd_attr == ImmediateDataTransfer ? immediate_cmd_desc.def_or_data_byte1 : regular_cmd_desc.dbp; 
-        i3c_tx_valid_o = 1'b1;
-        i3c_tx_use_tbit_o = 1'b1;
-      end
-      CCC_TargetAddr: begin
-        // Send Repeated Start + Target Addr + RnW
-        i3c_tx_byte_o = {dat_rdata.dynamic_address, cmd_dir == Read ? 1'b1 : 1'b0};
-        i3c_tx_valid_o = 1'b1;
-        i3c_start_stop_o = RepeatedStart;
-        i3c_tx_is_addr_o = 1'b1;
-      end
-      CCC_WaitFetch:
-      // This is so we skip the first transfer counts that are used for sending broadcast address and CCC code
-      transfer_cnt_rst = 1'b0;
-      CCC_Data: begin
-        transfer_cnt_rst = 1'b0;
-
-        if (cmd_attr == RegularTransfer && cmd_dir == Read) begin
-          // CCC Read - receive data from target (shared RX accumulation logic)
-          transfer_cnt_en = i3c_rx_valid_i;
-          rx_data_phase_active = 1'b1;  // Enable shared RX accumulation
-
-          // Track received data length for response
-          resp_data_length_q = 16'(transfer_cnt);
-        end else begin
-          // CCC Write - send data to target
-          transfer_cnt_en = i3c_tx_ready_i;
-          i3c_tx_valid_o = 1'b1;
-          i3c_tx_byte_o = tx_data_byte;
-          i3c_tx_use_tbit_o = 1'b1;  // Push-pull mode with T-bit
-        end
-      end
-      CCC_Done: begin
-        // Do nothing, wait for flow FSM to transition out of IssueCmd state
-
-        if (regular_cmd_desc.toc) begin
-          i3c_start_stop_o = Stop;
-          bus_active_d = 1'b0;  // Bus released
-        end
-        // else: bus stays active, next command will use RepeatedStart
       end
     endcase
 
@@ -882,32 +735,10 @@ module flow_active
         end
       end
       // FetchDAT: Fetch DAT entry
+      // All I3C commands go through BroadcastAddr (CCC, private, immediate, address assignment)
       FetchDAT: begin
         if (dat_captured) begin
-          unique case (cmd_attr)
-            ImmediateDataTransfer: begin
-              state_next = i2c_cmd ? I2CWriteImmediate : I3CWriteImmediate;
-            end
-            AddressAssignment: begin
-              // Address assignment commands (SETDASA, ENTDAA)
-              state_next = I3CAddressAssignment;
-            end
-            RegularTransfer:
-              if (cmd_present) begin
-                state_next = IssueCmd;
-              end
-              else if (cmd_dir == Write) begin
-                state_next = FetchTxData;
-              end else if (cmd_dir == Read) begin
-                state_next = PushRxData;
-              end
-            ComboTransfer: begin
-              // TODO: add later if needed
-            end
-            InternalControl: begin
-              // TODO: add later if needed
-            end
-          endcase
+          state_next = BroadcastAddr;
         end
       end
       // I2CWriteImmediate: Execute Immediate Transfer to Legacy I2C Device via I2C Controller
@@ -917,39 +748,30 @@ module flow_active
           state_next = WriteResp;
         end
       end
-      // I3CWriteImmediate: Execute Immediate Transfer to I3C Device
-      I3CWriteImmediate: begin
-        if (transfer_cnt == data_length + BytesBeforeImmData) begin
-          state_next = immediate_cmd_desc.wroc ? WriteResp : Idle;
-        end
-      end
+      // I3CWriteImmediate removed - now uses BroadcastAddr → TargetAddr → I3CDataWrite
       FetchTxData: begin
         if (pop_tx_fifo) begin
           if (~i2c_cmd) begin
-            state_next = cmd_present ? IssueCMD : I3CPrivateWrite;
-            i3c_tx_valid_o = 1'b1;
+            // Same for both CCC and private transfers - address phases already handled
+            state_next = I3CDataWrite;
           end else begin
             state_next = InitI2CWrite;
           end
         end
-        else begin
-          i3c_tx_valid_o = 1'b0; // De-assert valid if there is no data yet to fetch, to avoid sending unintended bytes
-        end
-        
       end
       PushRxData: begin
         // Wait for RX queue to have space, then decide next state
         if (~rx_queue_full_i) begin
           // Push succeeded, decide next state based on transfer completion
-          // transfer_cnt includes 2 address bytes, so data phase is complete when
-          // transfer_cnt >= data_length + 2
-          if (transfer_cnt >= data_length + 32'd2) begin
+          // Counter now starts at 0 for data phase
+          if (transfer_cnt >= data_length) begin
             // Transfer complete
             state_next = WriteResp;
           end else begin
             // More data to receive
             if (~i2c_cmd) begin
-              state_next = cmd_present ? IssueCmd : I3CPrivateRead;
+              // Same for both CCC and private - address phases already handled
+              state_next = I3CDataRead;
             end else begin
               state_next = InitI2CRead;
             end
@@ -969,46 +791,108 @@ module flow_active
       StallRead: begin
         // TODO
       end
-      IssueCmd: begin
 
-        if(ccc_state_next == CCC_WaitFetch) begin
-          state_next = (cmd_attr == RegularTransfer && cmd_dir == Read) ? PushRxData : FetchTxData;
-        end
-        
-        // Stay here until CCC sub-FSM completes
-        if (ccc_state == CCC_Done) begin
-          // this might be wrong
-          state_next = WriteResp;
+      // BroadcastAddr: Send 0x7E/W, then branch based on cmd_present
+      BroadcastAddr: begin
+        if (i3c_tx_ready_i) begin
+          if (cmd_present) begin
+            state_next = CCC_SendCCCCode;  // CCC path
+          end else begin
+            state_next = TargetAddr;        // Private transfer path
+          end
         end
       end
-      // I3CAddressAssignment: Execute Address Assignment CCC
+
+      // TargetAddr: Send target address, then go to data phase
+      TargetAddr: begin
+        if (i3c_tx_ready_i) begin
+          if (cmd_dir == Write) begin
+            // ImmediateDataTransfer has data in descriptor, skip FetchTxData
+            if (cmd_attr == ImmediateDataTransfer) begin
+              // Handle no-data case (data_length == 0)
+              state_next = (data_length == 0) ? WriteResp : I3CDataWrite;
+            end else begin
+              state_next = FetchTxData;
+            end
+          end else begin
+            state_next = I3CDataRead;  // Read starts immediately after address
+          end
+        end
+      end
+
+      // CCC_SendCCCCode: After CCC code, determine next step
+      CCC_SendCCCCode: begin
+        if (i3c_tx_ready_i) begin
+          if (cmd_attr == AddressAssignment) begin
+            // Address assignment handles static/dynamic addr internally
+            state_next = I3CAddressAssignment;
+          end else if (imm_use_def_byte) begin
+            state_next = CCC_DefiningByte;
+          end else if (is_direct_ccc) begin
+            state_next = TargetAddr;  // Direct CCC needs target address
+          end else if (data_length == 0) begin
+            state_next = WriteResp;   // No data, done
+          end else begin
+            // Broadcast CCC with data
+            if (cmd_dir == Read) begin
+              state_next = I3CDataRead;
+            end else begin
+              state_next = FetchTxData;
+            end
+          end
+        end
+      end
+
+      // CCC_DefiningByte: After defining byte, determine next step
+      CCC_DefiningByte: begin
+        if (i3c_tx_ready_i) begin
+          if (is_direct_ccc) begin
+            state_next = TargetAddr;
+          end else if (data_length == 0) begin
+            state_next = WriteResp;
+          end else begin
+            // Broadcast CCC with data
+            if (cmd_dir == Read) begin
+              state_next = I3CDataRead;
+            end else begin
+              state_next = FetchTxData;
+            end
+          end
+        end
+      end
+
+      // I3CAddressAssignment: Address Assignment CCC (static addr + dynamic addr)
       I3CAddressAssignment: begin
-        // TODO: transfer_cnt == 32'd3 is only for SETDASA
+        // Complete after sending both static addr and dynamic addr
         // TODO: Support multi-target using addr_cmd_desc.dev_count
-        if (i3c_tx_done_i && transfer_cnt == 32'd3) begin
+        if (i3c_tx_ready_i && transfer_cnt == 32'd1) begin
           state_next = WriteResp;
         end
       end
-      // I3CPrivateWrite: Execute Private Write to I3C Device
-      I3CPrivateWrite: begin
-        // Frame: S → 0x7E/W → ACK → Sr → Addr/W → ACK → Data1 → T → ... → DataN → T → P
-        // transfer_cnt 0,1 = address phase, 2+ = data phase
+      // I3CDataWrite: Data phase only (counter starts at 0)
+      I3CDataWrite: begin
         // Done when all data_length bytes sent
-        if (i3c_tx_done_i && transfer_cnt == data_length) begin
-          state_next = WriteResp;
+        if (i3c_tx_ready_i && transfer_cnt == data_length - 32'd1) begin
+          // For ImmediateDataTransfer, check wroc to decide if we write response
+          if (cmd_attr == ImmediateDataTransfer) begin
+            state_next = immediate_cmd_desc.wroc ? WriteResp : Idle;
+          end else begin
+            state_next = WriteResp;
+          end
+        end else if ((transfer_cnt & 32'd3) == 32'd3 && i3c_tx_ready_i) begin
+          // Refill TX FIFO every 4 bytes (not needed for ImmediateDataTransfer since max 4 bytes)
+          if (cmd_attr != ImmediateDataTransfer) begin
+            state_next = FetchTxData;
+          end
         end
-        else if ( cmd_attr == RegularTransfer && ((transfer_cnt - 32'd2) & 32'd3) == 32'd3) begin
-          state_next = FetchTxData;
-        end
-
       end
-      // I3CPrivateRead: Execute Private Read from I3C Device
-      I3CPrivateRead: begin
-        // Frame: S → 0x7E/W → ACK → Sr → Addr/R → ACK → Data1 → T → ... → DataN → T → P
-        // Transition to PushRxData when ready to push (i3c_rx_valid_i is only asserted during data phase)
+
+      // I3CDataRead: Data phase only (counter starts at 0)
+      I3CDataRead: begin
+        // Transition to PushRxData when ready to push
         if (i3c_rx_valid_i) begin
           // 4 bytes accumulated OR last byte of transfer
-          if (rx_byte_cnt_q == 2'd3 || transfer_cnt == data_length + 32'd1) begin
+          if (rx_byte_cnt_q == 2'd3 || transfer_cnt == data_length - 32'd1) begin
             state_next = PushRxData;
           end
         end
@@ -1023,85 +907,6 @@ module flow_active
         state_next = Idle;
       end
     endcase
-
-    unique case (ccc_state)
-      CCC_Idle: begin
-        ccc_state_next = IssueCmd ? CCC_BroadcastAddr : CCC_Idle;
-      end
-      CCC_BroadcastAddr: begin
-        ccc_state_next = CCC_SendCCCCode;
-      end
-      CCC_SendCCCCode: begin
-
-        if (!imm_use_def_byte) begin
-          if (is_direct_ccc) begin
-            ccc_state_next = CCC_TargetAddr;
-          end 
-          else begin
-            // if there is/are no data bytes to send during CCC, we send repeated start right after CCC code byte.
-            // Otherwise, the repeated start is sent after the defining byte (if used) or target address byte.
-            if ( (cmd_attr == ImmediateDataTransfer && immediate_cmd_desc.dtt == 0) ||
-                  cmd_attr == RegularTransfer && data_length == 0 ) begin
-              ccc_state_next = CCC_Done;
-            end 
-            else begin
-              ccc_state_next = CCC_WaitFetch;
-            end
-          end
-        end
-        else begin
-          ccc_state_next = CCC_DefiningByte;
-        end
-        
-      end
-      CCC_DefiningByte: begin
-        if (is_direct_ccc) begin
-          ccc_state_next = CCC_TargetAddr;
-        end else begin
-          // If there is/are no data bytes to send during CCC, we send repeated start right after defining byte.
-          // Otherwise, the repeated start is sent after target address byte.
-          if ( (cmd_attr == ImmediateDataTransfer && immediate_cmd_desc.dtt == 0) ||
-                cmd_attr == RegularTransfer && data_length == 0 ) begin
-            ccc_state_next = CCC_Done;
-          end 
-          else begin
-            ccc_state_next = CCC_WaitFetch;
-          end
-        end
-      end
-      CCC_TargetAddr: begin
-
-        // Broadcast Address doesn't have a target address byte, so we should never be in this state for Broadcast CCC. 
-        if (is_direct_ccc) begin
-          if ( (cmd_attr == ImmediateDataTransfer && immediate_cmd_desc.dtt == 0) ||
-                cmd_attr == RegularTransfer && data_length == 0 ) begin
-            ccc_state_next = CCC_Done;
-          end
-          else begin
-            ccc_state_next = CCC_WaitFetch;
-          end
-        end
-      end
-
-      end
-      CCC_WaitFetch: begin
-        // assuming that fetching from RX/TX FIFO happens in one cycle. 
-        ccc_state_next = CCC_Data;
-      end
-      CCC_Data: begin
-        if (i3c_tx_done_i && transfer_cnt == data_length + 1'b1) begin
-          ccc_state_next = CCC_Done;
-        end
-      end
-      CCC_Done: begin
-        // TODO: if we do a repeated start, then we need to fetchDat before going to CCC_BroadcastAddr 
-        ccc_state_next = regular_cmd_desc.toc ? CCC_Idle : CCC_BroadcastAddr;
-      end
-    endcase
-
-    if(ccc_state_next == CCC_WaitFetch) begin
-      transfer_cnt_rst_val_next = 2; 
-    end
   end
   
 

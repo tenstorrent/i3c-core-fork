@@ -28,8 +28,8 @@ module configuration (
     output logic [19:0] t_su_sta_o,
     output logic [19:0] t_su_sto_o,
 
-    // I3C PP mode timing (frequency in MHz)
-    output logic [15:0] sys_clk_freq_o,
+    // I3C PP mode timing (frequency selection)
+    output sys_clk_freq_e sys_clk_freq_o,
 
     // Bus timers
     output logic [19:0] t_bus_free_o,
@@ -149,7 +149,7 @@ module configuration (
   assign t_su_sto_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_SU_STO_REG.T_SU_STO.value);
 
   // Configuration: I3C PP mode timing
-  assign sys_clk_freq_o = hwif_out_i.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG.SYS_CLK_FREQ.value;
+  assign sys_clk_freq_o = sys_clk_freq_e'(hwif_out_i.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG.SYS_CLK_FREQ.value);
 
   // Configuration: bus_timers
   // 20 bits is enough to measure 1ms for clock speed 1GHz.

@@ -266,4 +266,11 @@ package i3c_pkg;
     RepeatedStart
   } start_stop_e;
 
+  // System clock frequency selection
+  typedef enum logic [1:0] {
+    SysClk100MHz = 2'b00,
+    SysClk150MHz = 2'b01,
+    SysClk200MHz = 2'b10
+  } sys_clk_freq_e;
+
 endpackage

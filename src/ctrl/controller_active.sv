@@ -128,7 +128,7 @@ module controller_active
     input logic [19:0] t_su_sta_i,
     input logic [19:0] t_su_sto_i,
     input logic [19:0] t_su_dat_i,
-    input logic [15:0] sys_clk_freq_i
+    input sys_clk_freq_e sys_clk_freq_i
 
 );
 

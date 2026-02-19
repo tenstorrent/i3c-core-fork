@@ -391,10 +391,10 @@ regfile SoCManagementInterfaceRegisters {
         name = "System Clock Frequency";
         field {
             name = "SYS_CLK_FREQ";
-            desc = "System clock frequency in MHz (used for I3C PP mode timing calculation). Valid values: 100, 200, 400.";
+            desc = "System clock frequency selection (used for I3C PP mode timing calculation). 0=100MHz, 1=150MHz, 2=200MHz.";
             sw = rw;
             hw = r;
-            reset = 16'd100;  // Default 100 MHz
-        } SYS_CLK_FREQ[15:0];
+            reset = 2'd0;  // Default 100 MHz
+        } SYS_CLK_FREQ[1:0];
     } SYS_CLK_FREQ_REG;
 };

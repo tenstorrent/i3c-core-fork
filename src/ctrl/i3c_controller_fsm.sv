@@ -21,7 +21,7 @@ module i3c_controller_fsm
     output logic ctrl_sda_o,
 
     // PP mode timing inputs
-    input  logic [15:0] sys_clk_freq_i,  // System clock frequency in MHz (from CSR)
+    input  sys_clk_freq_e sys_clk_freq_i,  // System clock frequency selection (from CSR)
     input  i3c_trans_mode_e mode_i,      // SDR0-4 speed selection (from command descriptor)
 
     // OD mode timing inputs (from CSRs, same as I2C FSM)
@@ -82,10 +82,10 @@ module i3c_controller_fsm
 
   logic [7:0] pp_half_period;
 
-  //TODO add i2c speeds if i2c_cmd 
+  //TODO add i2c speeds if i2c_cmd
   always_comb begin
     unique case (sys_clk_freq_i)
-      16'd100: begin
+      SysClk100MHz: begin
         // 100 MHz system clock
         unique case (mode_i)
           sdr0:    pp_half_period = 8'd4;    // 12.5 MHz SCL
@@ -96,7 +96,18 @@ module i3c_controller_fsm
           default: pp_half_period = 8'd25;   // Default to slowest
         endcase
       end
-      16'd200: begin
+      SysClk150MHz: begin
+        // 150 MHz system clock
+        unique case (mode_i)
+          sdr0:    pp_half_period = 8'd6;    // 12.5 MHz SCL
+          sdr1:    pp_half_period = 8'd10;   // ~7.5 MHz SCL
+          sdr2:    pp_half_period = 8'd13;   // ~5.77 MHz SCL
+          sdr3:    pp_half_period = 8'd19;   // ~3.95 MHz SCL
+          sdr4:    pp_half_period = 8'd38;   // ~1.97 MHz SCL
+          default: pp_half_period = 8'd38;   // Default to slowest
+        endcase
+      end
+      SysClk200MHz: begin
         // 200 MHz system clock
         unique case (mode_i)
           sdr0:    pp_half_period = 8'd8;    // 12.5 MHz SCL
@@ -107,20 +118,8 @@ module i3c_controller_fsm
           default: pp_half_period = 8'd50;   // Default to slowest
         endcase
       end
-      //TODO: add 150, 400?!?
-      16'd400: begin
-        // 400 MHz system clock
-        unique case (mode_i)
-          sdr0:    pp_half_period = 8'd16;   // 12.5 MHz SCL
-          sdr1:    pp_half_period = 8'd25;   // 8 MHz SCL
-          sdr2:    pp_half_period = 8'd34;   // ~5.88 MHz SCL
-          sdr3:    pp_half_period = 8'd50;   // 4 MHz SCL
-          sdr4:    pp_half_period = 8'd100;  // 2 MHz SCL
-          default: pp_half_period = 8'd100;  // Default to slowest
-        endcase
-      end
       default: begin
-        // Unsupported frequency - default to 100 MHz values
+        // Invalid enum value - default to 100 MHz values
         unique case (mode_i)
           sdr0:    pp_half_period = 8'd4;
           sdr1:    pp_half_period = 8'd7;
