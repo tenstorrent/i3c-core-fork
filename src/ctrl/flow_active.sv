@@ -475,6 +475,9 @@ module flow_active
     resp_desc.tid = '0;
     resp_desc.data_length = '0;
     i3c_tx_valid_o = 1'b0;
+    i3c_tx_byte_o = '0;
+    i3c_tx_is_addr_o = 1'b0;
+    i3c_tx_use_tbit_o = 1'b0;
     i3c_start_stop_o = None;
     bus_active_d = bus_active_q;  // Default: maintain current state
     // RX accumulator defaults

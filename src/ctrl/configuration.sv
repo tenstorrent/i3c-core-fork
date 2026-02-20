@@ -4,7 +4,10 @@
   This module extracts fields related to addressing from CSRs.
 */
 
-module configuration (
+module configuration
+    import i3c_pkg::start_stop_e;
+    import i3c_pkg::sys_clk_freq_e;
+(
     input logic clk_i,
     input logic rst_ni,
 

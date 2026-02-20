@@ -150,6 +150,19 @@ module controller_active
   // I3C transfer mode from flow FSM
   i3c_trans_mode_e i3c_trans_mode;
 
+  // I3C Controller interface signals
+  logic        i3c_tx_valid;
+  logic        i3c_tx_ready;
+  logic [7:0]  i3c_tx_byte;
+  start_stop_e i3c_start_stop;
+  logic        i3c_tx_is_addr;
+  logic        i3c_tx_use_tbit;
+  logic        i3c_rx_ack;
+  logic        i3c_rx_nack;
+  // RX interface
+  logic        i3c_rx_valid;
+  logic [7:0]  i3c_rx_byte;
+
   // TODO: Connect I2C Controller SDA/SCL to I3C Flow FSM
 
   flow_active flow_fsm (
@@ -216,6 +229,19 @@ module controller_active
       .unhandled_nak_timeout_o(unhandled_nak_timeout),
       .rx_fifo_wvalid_i(rx_fifo_wvalid),
       .rx_fifo_wdata_i(rx_fifo_wdata),
+
+      // I3C Controller interface
+      .i3c_tx_valid_o(i3c_tx_valid),
+      .i3c_tx_ready_i(i3c_tx_ready),
+      .i3c_tx_byte_o(i3c_tx_byte),
+      .i3c_start_stop_o(i3c_start_stop),
+      .i3c_tx_is_addr_o(i3c_tx_is_addr),
+      .i3c_tx_use_tbit_o(i3c_tx_use_tbit),
+      .i3c_rx_ack_i(i3c_rx_ack),
+      .i3c_rx_nack_i(i3c_rx_nack),
+      .i3c_rx_valid_i(i3c_rx_valid),
+      .i3c_rx_byte_i(i3c_rx_byte),
+
       .i3c_fsm_en_i,
       .i3c_fsm_idle_o,
       .i3c_trans_mode_o(i3c_trans_mode),
@@ -291,10 +317,6 @@ module controller_active
 
   // I3C Controller FSM - unused signals
   logic unused_i3c_host_idle;
-  logic unused_i3c_tx_ready;
-  logic unused_i3c_rx_valid;
-  logic [7:0] unused_i3c_rx_data;
-  logic unused_i3c_cmd_done;
 
   i3c_controller_fsm xi3c_controller_fsm (
       .clk_i(clk_i),
@@ -305,10 +327,6 @@ module controller_active
       .ctrl_sda_i(ctrl_bus_i[1].sda.value),
       .ctrl_scl_o(ctrl_scl_o[1]),
       .ctrl_sda_o(ctrl_sda_o[1]),
-
-      // Mode selection
-      .od_pp_mode_i(1'b0),  // TODO: Control from flow FSM
-      .sel_od_pp_o(phy_sel_od_pp_o[1]),
 
       // PP mode timing inputs
       .sys_clk_freq_i(sys_clk_freq_i),
@@ -330,20 +348,23 @@ module controller_active
       .host_enable_i(host_enable),
       .host_idle_o(unused_i3c_host_idle),
 
-      // Data interface - TODO: Connect to flow FSM
-      .tx_valid_i(1'b0),
-      .tx_data_i(8'h00),
-      .tx_ready_o(unused_i3c_tx_ready),
-      .rx_valid_o(unused_i3c_rx_valid),
-      .rx_data_o(unused_i3c_rx_data),
-      .rx_ready_i(1'b0),
+      // TX interface from flow_active
+      .tx_valid_i(i3c_tx_valid),
+      .tx_data_i(i3c_tx_byte),
+      .tx_start_stop_i(i3c_start_stop),
+      .tx_is_addr_i(i3c_tx_is_addr),
+      .tx_use_tbit_i(i3c_tx_use_tbit),
+      .tx_ready_o(i3c_tx_ready),
+      .rx_ack_o(i3c_rx_ack),
+      .rx_nack_o(i3c_rx_nack),
 
-      // Command interface - TODO: Connect to flow FSM
-      .start_cmd_i(1'b0),
-      .stop_cmd_i(1'b0),
-      .tx_cmd_i(1'b0),
-      .rx_cmd_i(1'b0),
-      .cmd_done_o(unused_i3c_cmd_done)
+      // RX interface to flow_active
+      .rx_req_i(1'b0),              // TODO: Connect to flow_active RX request
+      .rx_valid_o(i3c_rx_valid),
+      .rx_data_o(i3c_rx_byte),
+
+      // Mode selection output
+      .sel_od_pp_o(phy_sel_od_pp_o[1])
   );
 
   // TODO: Handle driver switching in the active controller mode

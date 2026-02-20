@@ -40,18 +40,22 @@ module i3c_controller_fsm
     input  logic host_enable_i,
     output logic host_idle_o,
 
-    // Interface from flow_active.sv
+    // TX interface from flow_active.sv
     input  logic       tx_valid_i,       // Byte ready to send
     input  logic [7:0] tx_data_i,        // Data byte to send
-    input  logic       tx_start_i,       // Generate START before byte
-    input  logic       tx_stop_i,        // Generate STOP after byte
-    input  logic       tx_sr_i,          // Generate Repeated Start before byte
+    input  start_stop_e tx_start_stop_i, // Start/Stop/Repeated Start indication
     input  logic       tx_is_addr_i,     // Address byte (open-drain, expects ACK)
     input  logic       tx_use_tbit_i,    // Add T-bit after byte (push-pull I3C mode)
-    output logic       tx_ready_o,       // Ready to accept byte
-    output logic       tx_done_o,        // Byte transfer complete (after 9th bit)
-    output logic       rx_ack_o,         // ACK received (valid when tx_done_o && tx_is_addr_i was set)
-    output logic       rx_nack_o         // NACK received
+    output logic       tx_ready_o,       // Ready for next byte (1 in Idle and after byte completes)
+    output logic       rx_ack_o,         // ACK received (valid when tx_ready_o && tx_is_addr_i was set)
+    output logic       rx_nack_o,        // NACK received
+
+    // RX interface to flow_active.sv
+    input  logic       rx_req_i,         // Read byte request
+    output logic       rx_valid_o,       // Received byte valid (pulses 1 cycle)
+    output logic [7:0] rx_data_o,        // Received byte data
+
+    output logic       sel_od_pp_o       // Select signal for OD vs PP mode (for timing and output control logic
 );
 
   /*
@@ -67,9 +71,7 @@ module i3c_controller_fsm
   // Latched Command Signals
   // ============================================================================
   // Latch command signals when byte transfer starts to use throughout the transfer
-  logic tx_start_q;
-  logic tx_stop_q;
-  logic tx_sr_q;
+  start_stop_e tx_start_stop_q;
   logic tx_is_addr_q;
   logic tx_use_tbit_q;
 
@@ -132,6 +134,9 @@ module i3c_controller_fsm
     endcase
   end
 
+  // TODO: Switching from PP to OD mode mid-transfer (repeated start with different address type) may require special handling to ensure timing requirements are met for both modes.
+  // I3C Basic spec 5.1.2.3 
+
   // ============================================================================
   // Timing Counter
   // ============================================================================
@@ -152,13 +157,10 @@ module i3c_controller_fsm
   logic        load_tcount;
   tcount_sel_e tcount_sel;
 
-  // TODO: add logic to decide select OD or PP
-  logic od_pp_sel;
-
   always_comb begin : counter_functions
     tcount_d = tcount_q;
     if (load_tcount) begin
-      if (od_pp_sel == 1'b0) begin
+      if (sel_od_pp_o == 1'b0) begin
         // Open Drain mode: use CSR timing parameters
         unique case (tcount_sel)
           tSetupStart: tcount_d = t_r_i + tsu_sta_i;
@@ -175,6 +177,7 @@ module i3c_controller_fsm
       end else begin
         // Push Pull mode: simplified timing with some margin
         unique case (tcount_sel)
+          
           tSetupStart: tcount_d = 20'(pp_half_period >> 1);  // Half of half-period for margin
           tHoldStart:  tcount_d = 20'(pp_half_period >> 1);
           tSetupData:  tcount_d = 20'd2;  // Minimum 2 cycles for setup
@@ -182,6 +185,7 @@ module i3c_controller_fsm
           tClockPulse: tcount_d = 20'(pp_half_period);       // 50% duty
           tHoldBit:    tcount_d = 20'd2;  // Minimum 2 cycles for hold
           tSetupStop:  tcount_d = 20'(pp_half_period >> 1);
+          // TODO: Maybe need to add tAckPulse, due to t_dig_h from I3C Basic Spec 5.1.2.3.1
           tHoldStop:   tcount_d = 20'(pp_half_period >> 1);
           tNoDelay:    tcount_d = 20'd1;
           default:     tcount_d = 20'd1;
@@ -233,7 +237,7 @@ module i3c_controller_fsm
   end
 
   // ============================================================================
-  // ACK/NACK Detection
+  // ACK/NACK Detection (TX mode)
   // ============================================================================
   logic ack_sampled;
   logic sample_ack;
@@ -243,6 +247,39 @@ module i3c_controller_fsm
       ack_sampled <= 1'b1;  // Default to NACK (SDA high)
     end else if (sample_ack) begin
       ack_sampled <= ctrl_sda_i;
+    end
+  end
+
+  // ============================================================================
+  // RX Data Path
+  // ============================================================================
+  logic [7:0] read_byte;       // Shift register for incoming data (MSB first)
+  logic       read_byte_clr;   // Clear at start of new RX byte
+  // Note: shift_data_en declared above in Bit Counter section, reused for RX
+
+  // RX shift register - MSB first
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      read_byte <= 8'h00;
+    end else if (read_byte_clr) begin
+      read_byte <= 8'h00;
+    end else if (shift_data_en) begin
+      read_byte <= {read_byte[6:0], ctrl_sda_i};  // Shift in MSB first
+    end
+  end
+
+  // ============================================================================
+  // RX T-bit Handling
+  // ============================================================================
+  // T-bit=0: target done sending, T-bit=1: target has more data
+  logic rx_tbit_q;      // Latched T-bit value from target
+  logic sample_tbit;    // Sample T-bit on last cycle of ReadTbitPulse
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      rx_tbit_q <= 1'b1;  // Default to "more data"
+    end else if (sample_tbit) begin
+      rx_tbit_q <= ctrl_sda_i;  // Sample T-bit from target
     end
   end
 
@@ -258,15 +295,24 @@ module i3c_controller_fsm
     HoldSr,       // Sr: SCL high, SDA high (setup)
     FallSr,       // Sr: SDA falls while SCL high (Sr condition)
     ClockSr,      // Sr: SCL goes low after Sr
-    ClockLow,     // Data: SCL low, drive data onto SDA
-    ClockPulse,   // Data: SCL high, data stable
-    HoldBit,      // Data: SCL low after pulse, prepare next bit
-    AckLow,       // 9th bit: SCL low, release SDA (for ACK) or drive T-bit
-    AckPulse,     // 9th bit: SCL high, sample ACK or T-bit stable
-    AckHold,      // 9th bit: SCL low after ACK/T-bit
+    ClockLow,     // TX Data: SCL low, drive data onto SDA
+    ClockPulse,   // TX Data: SCL high, data stable
+    HoldBit,      // TX Data: SCL low after pulse, prepare next bit
+    AckLow,       // TX 9th bit: SCL low, release SDA (for ACK) or drive T-bit
+    AckPulse,     // TX 9th bit: SCL high, sample ACK or T-bit stable
+    AckHold,      // TX 9th bit: SCL low after ACK/T-bit
     SetupStop,    // STOP: SCL low, SDA low
     RiseStop,     // STOP: SCL high, SDA still low
-    HoldStop      // STOP: Both lines released (STOP complete)
+    HoldStop,     // STOP: Both lines released (STOP complete)
+    // RX data bit states (controller releases SDA, target drives)
+    ReadClockLow,   // RX Data: SCL low, SDA released
+    ReadClockPulse, // RX Data: SCL high, sample SDA at end
+    ReadHoldBit,    // RX Data: SCL low after sampling
+    // RX 9th bit (T-bit) states - TARGET drives T-bit, controller samples
+    // T-bit=0: target done, T-bit=1: target has more data
+    ReadTbitLow,    // RX T-bit: SCL low, SDA released (OD mode)
+    ReadTbitPulse,  // RX T-bit: SCL high, sample T-bit from target
+    ReadTbitHold    // RX T-bit: SCL low, respond based on T-bit value
   } state_e;
 
   state_e state_q, state_d;
@@ -279,18 +325,14 @@ module i3c_controller_fsm
   // ============================================================================
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      tx_start_q    <= 1'b0;
-      tx_stop_q     <= 1'b0;
-      tx_sr_q       <= 1'b0;
-      tx_is_addr_q  <= 1'b0;
-      tx_use_tbit_q <= 1'b0;
+      tx_start_stop_q <= None;
+      tx_is_addr_q    <= 1'b0;
+      tx_use_tbit_q   <= 1'b0;
     end else if (state_q == Idle && tx_valid_i && host_enable_i) begin
       // Latch command signals when starting a new byte transfer
-      tx_start_q    <= tx_start_i;
-      tx_stop_q     <= tx_stop_i;
-      tx_sr_q       <= tx_sr_i;
-      tx_is_addr_q  <= tx_is_addr_i;
-      tx_use_tbit_q <= tx_use_tbit_i;
+      tx_start_stop_q <= tx_start_stop_i;
+      tx_is_addr_q    <= tx_is_addr_i;
+      tx_use_tbit_q   <= tx_use_tbit_i;
     end
   end
 
@@ -302,9 +344,18 @@ module i3c_controller_fsm
     scl_d = 1'b1;
     sda_d = 1'b1;
     tx_ready_o = 1'b0;
-    tx_done_o = 1'b0;
     rx_ack_o = 1'b0;
     rx_nack_o = 1'b0;
+    rx_valid_o = 1'b0;
+    rx_data_o = read_byte;
+
+    // 0 = OD mode, 1 = PP mode
+
+    /*
+     * TODO: Look at 5.1.2.3 for handling sel_od_pp_o during transition periods. For now, atleast
+    * for simulation this should be okay?
+    */
+    sel_od_pp_o = ~tx_is_addr_q;  // Default: PP for data, OD for address
 
     unique case (state_q)
       Idle: begin
@@ -396,6 +447,7 @@ module i3c_controller_fsm
         if (tx_is_addr_q) begin
           // Address byte: release SDA for target to ACK
           sda_d = 1'b1;
+          // Note: sample_ack is set in state_functions to avoid multi-driven signal
         end else if (tx_use_tbit_q) begin
           // Data byte with T-bit: drive T-bit (0 = more data, 1 = end)
           // For now, always drive 0 (more data coming), STOP handles end
@@ -409,7 +461,7 @@ module i3c_controller_fsm
         // SCL high for 9th bit - sample ACK or keep T-bit stable
         scl_d = 1'b1;
         if (tx_is_addr_q) begin
-          sda_d = 1'b1;  // Keep released for ACK sampling
+          sda_d = 1'b0; // Consult I3C Basic Spec 5.1.2.3.1
         end else if (tx_use_tbit_q) begin
           sda_d = 1'b0;  // Keep T-bit stable
         end else begin
@@ -418,10 +470,10 @@ module i3c_controller_fsm
       end
 
       AckHold: begin
-        // SCL low after 9th bit, signal done
+        // SCL low after 9th bit, signal ready for next byte
         scl_d = 1'b0;
         sda_d = 1'b0;  // Drive low in preparation for next operation
-        tx_done_o = 1'b1;
+        tx_ready_o = 1'b1;
         // Report ACK/NACK status
         if (tx_is_addr_q) begin
           rx_ack_o = ~ack_sampled;   // ACK = SDA low
@@ -447,6 +499,54 @@ module i3c_controller_fsm
         sda_d = 1'b1;
       end
 
+      // ========================================================================
+      // RX Data Bit States - controller releases SDA, target drives
+      // ========================================================================
+      ReadClockLow: begin
+        scl_d = 1'b0;   // SCL low
+        sda_d = 1'b1;   // Release SDA (target drives)
+        sel_od_pp_o = 1'b1;  // Push-Pull for data phase
+      end
+
+      ReadClockPulse: begin
+        scl_d = 1'b1;   // SCL high (sampling window)
+        sda_d = 1'b1;   // Release SDA
+        sel_od_pp_o = 1'b1;  // Push-Pull
+      end
+
+      ReadHoldBit: begin
+        scl_d = 1'b0;   // SCL low
+        sda_d = 1'b1;   // Release SDA
+        sel_od_pp_o = 1'b1;  // Push-Pull
+      end
+
+      // ========================================================================
+      // RX T-bit States - TARGET drives T-bit, controller samples (Open Drain)
+      // T-bit=0: target done sending, T-bit=1: target has more data
+      // ========================================================================
+      ReadTbitLow: begin
+        scl_d = 1'b0;   // SCL low
+        sda_d = 1'b1;   // Release SDA (OD mode, target drives T-bit)
+        sel_od_pp_o = 1'b0;  // Open Drain for T-bit
+      end
+
+      ReadTbitPulse: begin
+        scl_d = 1'b1;   // SCL high, sample T-bit from target
+        sda_d = 1'b1;   // Release SDA
+        sel_od_pp_o = 1'b0;  // Open Drain
+      end
+
+      ReadTbitHold: begin
+        scl_d = 1'b0;   // SCL low
+        // If T-bit=0 (target done): drive SDA low to acknowledge end
+        // If T-bit=1 (target has more): keep SDA released
+        sda_d = rx_tbit_q ? 1'b1 : 1'b0;  // Drive low if target done (T-bit=0)
+        sel_od_pp_o = 1'b0;  // Open Drain
+        // Output RX data
+        rx_valid_o = 1'b1;
+        rx_data_o = read_byte;
+      end
+
       default: begin
         host_idle_o = 1'b1;
         scl_d = 1'b1;
@@ -467,28 +567,41 @@ module i3c_controller_fsm
     shift_data_en = 1'b0;
     load_tx_data = 1'b0;
     sample_ack = 1'b0;
+    read_byte_clr = 1'b0;
+    sample_tbit = 1'b0;
 
     unique case (state_q)
       Idle: begin
-        if (host_enable_i && tx_valid_i) begin
+        if (host_enable_i && rx_req_i) begin
+          // Enter RX (read) mode
+          read_byte_clr = 1'b1;
+          bit_clr = 1'b1;
+          state_d = ReadClockLow;
+          load_tcount = 1'b1;
+          tcount_sel = tClockLow;
+        end else if (host_enable_i && tx_valid_i) begin
           load_tx_data = 1'b1;
           bit_clr = 1'b1;
-          if (tx_start_i) begin
-            // START requested before byte
-            state_d = SetupStart;
-            load_tcount = 1'b1;
-            tcount_sel = tSetupStart;
-          end else if (tx_sr_i) begin
-            // Repeated Start requested before byte
-            state_d = SetupSr;
-            load_tcount = 1'b1;
-            tcount_sel = tSetupStart;  // Use same timing as START setup
-          end else begin
-            // No START/Sr, go directly to data transmission
-            state_d = ClockLow;
-            load_tcount = 1'b1;
-            tcount_sel = tClockLow;
-          end
+          unique case (tx_start_stop_i)
+            Start: begin
+              // START requested before byte
+              state_d = SetupStart;
+              load_tcount = 1'b1;
+              tcount_sel = tSetupStart;
+            end
+            RepeatedStart: begin
+              // Repeated Start requested before byte
+              state_d = SetupSr;
+              load_tcount = 1'b1;
+              tcount_sel = tSetupStart;  // Use same timing as START setup
+            end
+            default: begin
+              // No START/Sr (None or Stop), go directly to data transmission
+              state_d = ClockLow;
+              load_tcount = 1'b1;
+              tcount_sel = tClockLow;
+            end
+          endcase
         end
       end
 
@@ -586,6 +699,10 @@ module i3c_controller_fsm
       end
 
       AckLow: begin
+        // Sample ACK on entry to AckLow (target drives SDA after SCL falls)
+        if (tx_is_addr_q) begin
+          sample_ack = 1'b1;
+        end
         if (tcount_q == 20'd1) begin
           state_d = AckPulse;
           load_tcount = 1'b1;
@@ -598,16 +715,12 @@ module i3c_controller_fsm
           state_d = AckHold;
           load_tcount = 1'b1;
           tcount_sel = tHoldBit;
-          // Sample ACK at end of pulse (falling edge of SCL)
-          if (tx_is_addr_q) begin
-            sample_ack = 1'b1;
-          end
         end
       end
 
       AckHold: begin
         if (tcount_q == 20'd1) begin
-          if (tx_stop_q) begin
+          if (tx_start_stop_q == Stop) begin
             // STOP requested after this byte
             state_d = SetupStop;
             load_tcount = 1'b1;
@@ -642,6 +755,80 @@ module i3c_controller_fsm
           state_d = Idle;
           load_tcount = 1'b1;
           tcount_sel = tNoDelay;
+        end
+      end
+
+      // ========================================================================
+      // RX Data Bit Transitions
+      // ========================================================================
+      ReadClockLow: begin
+        if (tcount_q == 20'd1) begin
+          state_d = ReadClockPulse;
+          load_tcount = 1'b1;
+          tcount_sel = tClockPulse;
+        end
+      end
+
+      ReadClockPulse: begin
+        if (tcount_q == 20'd1) begin
+          state_d = ReadHoldBit;
+          load_tcount = 1'b1;
+          tcount_sel = tHoldBit;
+          shift_data_en = 1'b1;  // Sample SDA on last cycle
+        end
+      end
+
+      ReadHoldBit: begin
+        if (tcount_q == 20'd1) begin
+          if (bit_index == 4'd1) begin
+            // Last data bit done, go to 9th bit (sample T-bit from target)
+            state_d = ReadTbitLow;
+            load_tcount = 1'b1;
+            tcount_sel = tClockLow;
+          end else begin
+            // More bits to read
+            state_d = ReadClockLow;
+            load_tcount = 1'b1;
+            tcount_sel = tClockLow;
+            bit_decr = 1'b1;
+          end
+        end
+      end
+
+      // ========================================================================
+      // RX T-bit Transitions - sample T-bit from TARGET
+      // ========================================================================
+      ReadTbitLow: begin
+        if (tcount_q == 20'd1) begin
+          state_d = ReadTbitPulse;
+          load_tcount = 1'b1;
+          tcount_sel = tClockPulse;
+        end
+      end
+
+      ReadTbitPulse: begin
+        if (tcount_q == 20'd1) begin
+          state_d = ReadTbitHold;
+          load_tcount = 1'b1;
+          tcount_sel = tHoldBit;
+          sample_tbit = 1'b1;  // Sample T-bit from target on last cycle
+        end
+      end
+
+      ReadTbitHold: begin
+        if (tcount_q == 20'd1) begin
+          if (!rx_tbit_q) begin
+            // T-bit=0: Target is done, issue STOP
+            state_d = SetupStop;
+            load_tcount = 1'b1;
+            tcount_sel = tClockLow;
+          end else begin
+            // T-bit=1: Target has more data, return to Idle for next byte
+            // TODO: implement controller read abort behaviour
+            state_d = Idle;
+            load_tcount = 1'b1;
+            tcount_sel = tNoDelay;
+          end
         end
       end
 
