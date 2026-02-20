@@ -2561,6 +2561,14 @@ package I3CCSR_pkg;
     } I3CCSR__I3C_EC__SoCMgmtIf__T_IDLE_REG__out_t;
 
     typedef struct packed{
+        logic [1:0] value;
+    } I3CCSR__I3C_EC__SoCMgmtIf__SYS_CLK_FREQ_REG__SYS_CLK_FREQ__out_t;
+
+    typedef struct packed{
+        I3CCSR__I3C_EC__SoCMgmtIf__SYS_CLK_FREQ_REG__SYS_CLK_FREQ__out_t SYS_CLK_FREQ;
+    } I3CCSR__I3C_EC__SoCMgmtIf__SYS_CLK_FREQ_REG__out_t;
+
+    typedef struct packed{
         I3CCSR__I3C_EC__SoCMgmtIf__EXTCAP_HEADER__out_t EXTCAP_HEADER;
         I3CCSR__I3C_EC__SoCMgmtIf__SOC_MGMT_CONTROL__out_t SOC_MGMT_CONTROL;
         I3CCSR__I3C_EC__SoCMgmtIf__SOC_MGMT_STATUS__out_t SOC_MGMT_STATUS;
@@ -2584,6 +2592,7 @@ package I3CCSR_pkg;
         I3CCSR__I3C_EC__SoCMgmtIf__T_FREE_REG__out_t T_FREE_REG;
         I3CCSR__I3C_EC__SoCMgmtIf__T_AVAL_REG__out_t T_AVAL_REG;
         I3CCSR__I3C_EC__SoCMgmtIf__T_IDLE_REG__out_t T_IDLE_REG;
+        I3CCSR__I3C_EC__SoCMgmtIf__SYS_CLK_FREQ_REG__out_t SYS_CLK_FREQ_REG;
     } I3CCSR__I3C_EC__SoCMgmtIf__out_t;
 
     typedef struct packed{

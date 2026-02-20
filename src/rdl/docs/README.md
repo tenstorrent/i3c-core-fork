@@ -2170,7 +2170,7 @@ Part of data in the IBI queue is considered corrupted and will be discarded.
 
 - Absolute Address: 0x200
 - Base Offset: 0x100
-- Size: 0x5C
+- Size: 0x60
 
 |Offset|       Identifier      |                  Name                  |
 |------|-----------------------|----------------------------------------|
@@ -2197,6 +2197,7 @@ Part of data in the IBI queue is considered corrupted and will be discarded.
 | 0x50 |       T_FREE_REG      |                                        |
 | 0x54 |       T_AVAL_REG      |                                        |
 | 0x58 |       T_IDLE_REG      |                                        |
+| 0x5C |    SYS_CLK_FREQ_REG   |         System Clock Frequency         |
 
 ### EXTCAP_HEADER register
 
@@ -2616,6 +2617,20 @@ Part of data in the IBI queue is considered corrupted and will be discarded.
 #### T_IDLE field
 
 
+
+### SYS_CLK_FREQ_REG register
+
+- Absolute Address: 0x25C
+- Base Offset: 0x5C
+- Size: 0x4
+
+|Bits| Identifier |Access|Reset|    Name    |
+|----|------------|------|-----|------------|
+| 1:0|SYS_CLK_FREQ|  rw  | 0x0 |SYS_CLK_FREQ|
+
+#### SYS_CLK_FREQ field
+
+<p>System clock frequency selection (used for I3C PP mode timing calculation). 0=100MHz, 1=150MHz, 2=200MHz.</p>
 
 ## CtrlCfg register file
 

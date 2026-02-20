@@ -1975,6 +1975,26 @@
 
     endgroup
 
+    /*----------------------- I3CCSR__I3C_EC__SOCMGMTIF__SYS_CLK_FREQ_REG COVERGROUPS -----------------------*/
+    covergroup I3CCSR__I3C_EC__SoCMgmtIf__SYS_CLK_FREQ_REG_bit_cg with function sample(input bit reg_bit);
+        option.per_instance = 1;
+        reg_bit_cp : coverpoint reg_bit {
+            bins value[2] = {0,1};
+        }
+        reg_bit_edge_cp : coverpoint reg_bit {
+            bins rise = (0 => 1);
+            bins fall = (1 => 0);
+        }
+
+    endgroup
+    covergroup I3CCSR__I3C_EC__SoCMgmtIf__SYS_CLK_FREQ_REG_fld_cg with function sample(
+    input bit [2-1:0] SYS_CLK_FREQ
+    );
+        option.per_instance = 1;
+        SYS_CLK_FREQ_cp : coverpoint SYS_CLK_FREQ;
+
+    endgroup
+
     /*----------------------- I3CCSR__I3C_EC__CTRLCFG__EXTCAP_HEADER COVERGROUPS -----------------------*/
     covergroup I3CCSR__I3C_EC__CtrlCfg__EXTCAP_HEADER_bit_cg with function sample(input bit reg_bit);
         option.per_instance = 1;

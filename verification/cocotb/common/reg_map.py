@@ -2719,6 +2719,20 @@ reg_map = Munch.fromDict({
                     "rclr": 0,
                     "hwclr": 0
                 }
+            },
+            "SYS_CLK_FREQ_REG": {
+                "base_addr": 604,
+                "offset": 604,
+                "SYS_CLK_FREQ": {
+                    "low": 0,
+                    "mask": 3,
+                    "reset": 0,
+                    "sw": "rw",
+                    "hw": "r",
+                    "woclr": 0,
+                    "rclr": 0,
+                    "hwclr": 0
+                }
             }
         },
         "CTRLCFG": {

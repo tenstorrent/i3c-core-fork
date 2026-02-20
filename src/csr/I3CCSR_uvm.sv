@@ -3654,6 +3654,36 @@ package I3CCSR_uvm;
         endfunction : build
     endclass : I3CCSR__I3C_EC__SoCMgmtIf__T_IDLE_REG
 
+    // Reg - I3CCSR.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG
+    class I3CCSR__I3C_EC__SoCMgmtIf__SYS_CLK_FREQ_REG extends uvm_reg;
+        protected uvm_reg_data_t m_current;
+        protected uvm_reg_data_t m_data;
+        protected bit            m_is_read;
+
+        I3CCSR__I3C_EC__SoCMgmtIf__SYS_CLK_FREQ_REG_bit_cg SYS_CLK_FREQ_bit_cg[2];
+        I3CCSR__I3C_EC__SoCMgmtIf__SYS_CLK_FREQ_REG_fld_cg fld_cg;
+        rand uvm_reg_field SYS_CLK_FREQ;
+
+        function new(string name = "I3CCSR__I3C_EC__SoCMgmtIf__SYS_CLK_FREQ_REG");
+            super.new(name, 32, build_coverage(UVM_CVR_ALL));
+        endfunction : new
+        extern virtual function void sample_values();
+        extern protected virtual function void sample(uvm_reg_data_t  data,
+                                                      uvm_reg_data_t  byte_en,
+                                                      bit             is_read,
+                                                      uvm_reg_map     map);
+
+        virtual function void build();
+            this.SYS_CLK_FREQ = new("SYS_CLK_FREQ");
+            this.SYS_CLK_FREQ.configure(this, 2, 0, "RW", 0, 'h0, 1, 1, 0);
+            if (has_coverage(UVM_CVR_REG_BITS)) begin
+                foreach(SYS_CLK_FREQ_bit_cg[bt]) SYS_CLK_FREQ_bit_cg[bt] = new();
+            end
+            if (has_coverage(UVM_CVR_FIELD_VALS))
+                fld_cg = new();
+        endfunction : build
+    endclass : I3CCSR__I3C_EC__SoCMgmtIf__SYS_CLK_FREQ_REG
+
     // Regfile - I3CCSR.I3C_EC.SoCMgmtIf
     class I3CCSR__I3C_EC__SoCMgmtIf extends uvm_reg_block;
         rand I3CCSR__I3C_EC__SoCMgmtIf__EXTCAP_HEADER EXTCAP_HEADER;
@@ -3679,6 +3709,7 @@ package I3CCSR_uvm;
         rand I3CCSR__I3C_EC__SoCMgmtIf__T_FREE_REG T_FREE_REG;
         rand I3CCSR__I3C_EC__SoCMgmtIf__T_AVAL_REG T_AVAL_REG;
         rand I3CCSR__I3C_EC__SoCMgmtIf__T_IDLE_REG T_IDLE_REG;
+        rand I3CCSR__I3C_EC__SoCMgmtIf__SYS_CLK_FREQ_REG SYS_CLK_FREQ_REG;
 
         function new(string name = "I3CCSR__I3C_EC__SoCMgmtIf");
             super.new(name);
@@ -3801,6 +3832,11 @@ package I3CCSR_uvm;
 
             this.T_IDLE_REG.build();
             this.default_map.add_reg(this.T_IDLE_REG, 'h58);
+            this.SYS_CLK_FREQ_REG = new("SYS_CLK_FREQ_REG");
+            this.SYS_CLK_FREQ_REG.configure(this);
+
+            this.SYS_CLK_FREQ_REG.build();
+            this.default_map.add_reg(this.SYS_CLK_FREQ_REG, 'h5c);
         endfunction : build
     endclass : I3CCSR__I3C_EC__SoCMgmtIf
 

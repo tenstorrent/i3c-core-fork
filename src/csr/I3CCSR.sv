@@ -177,6 +177,7 @@ module I3CCSR (
                 logic T_FREE_REG;
                 logic T_AVAL_REG;
                 logic T_IDLE_REG;
+                logic SYS_CLK_FREQ_REG;
             } SoCMgmtIf;
             struct packed{
                 logic EXTCAP_HEADER;
@@ -284,6 +285,7 @@ module I3CCSR (
         decoded_reg_strb.I3C_EC.SoCMgmtIf.T_FREE_REG = cpuif_req_masked & (cpuif_addr == 10'h250);
         decoded_reg_strb.I3C_EC.SoCMgmtIf.T_AVAL_REG = cpuif_req_masked & (cpuif_addr == 10'h254);
         decoded_reg_strb.I3C_EC.SoCMgmtIf.T_IDLE_REG = cpuif_req_masked & (cpuif_addr == 10'h258);
+        decoded_reg_strb.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG = cpuif_req_masked & (cpuif_addr == 10'h25c);
         decoded_reg_strb.I3C_EC.CtrlCfg.EXTCAP_HEADER = cpuif_req_masked & (cpuif_addr == 10'h260);
         decoded_reg_strb.I3C_EC.CtrlCfg.CONTROLLER_CONFIG = cpuif_req_masked & (cpuif_addr == 10'h264);
         decoded_reg_strb.I3C_EC.TERMINATION_EXTCAP_HEADER = cpuif_req_masked & (cpuif_addr == 10'h268);
@@ -1295,6 +1297,12 @@ module I3CCSR (
                         logic load_next;
                     } T_IDLE;
                 } T_IDLE_REG;
+                struct packed{
+                    struct packed{
+                        logic [1:0] next;
+                        logic load_next;
+                    } SYS_CLK_FREQ;
+                } SYS_CLK_FREQ_REG;
             } SoCMgmtIf;
             struct packed{
                 struct packed{
@@ -2089,6 +2097,11 @@ module I3CCSR (
                         logic [31:0] value;
                     } T_IDLE;
                 } T_IDLE_REG;
+                struct packed{
+                    struct packed{
+                        logic [1:0] value;
+                    } SYS_CLK_FREQ;
+                } SYS_CLK_FREQ_REG;
             } SoCMgmtIf;
             struct packed{
                 struct packed{
@@ -7303,6 +7316,29 @@ module I3CCSR (
         end
     end
     assign hwif_out.I3C_EC.SoCMgmtIf.T_IDLE_REG.T_IDLE.value = field_storage.I3C_EC.SoCMgmtIf.T_IDLE_REG.T_IDLE.value;
+    // Field: I3CCSR.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG.SYS_CLK_FREQ
+    always_comb begin
+        automatic logic [1:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG.SYS_CLK_FREQ.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG.SYS_CLK_FREQ.value & ~decoded_wr_biten[1:0]) | (decoded_wr_data[1:0] & decoded_wr_biten[1:0]);
+            load_next_c = '1;
+        end
+        field_combo.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG.SYS_CLK_FREQ.next = next_c;
+        field_combo.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG.SYS_CLK_FREQ.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge hwif_in.rst_ni) begin
+        if(~hwif_in.rst_ni) begin
+            field_storage.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG.SYS_CLK_FREQ.value <= 2'h0;
+        end else begin
+            if(field_combo.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG.SYS_CLK_FREQ.load_next) begin
+                field_storage.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG.SYS_CLK_FREQ.value <= field_combo.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG.SYS_CLK_FREQ.next;
+            end
+        end
+    end
+    assign hwif_out.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG.SYS_CLK_FREQ.value = field_storage.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG.SYS_CLK_FREQ.value;
     assign hwif_out.I3C_EC.CtrlCfg.EXTCAP_HEADER.CAP_ID.value = 8'h2;
     assign hwif_out.I3C_EC.CtrlCfg.EXTCAP_HEADER.CAP_LENGTH.value = 16'h2;
     // Field: I3CCSR.I3C_EC.CtrlCfg.CONTROLLER_CONFIG.OPERATION_MODE
@@ -7368,7 +7404,7 @@ module I3CCSR (
     logic [31:0] readback_data;
 
     // Assign readback values to a flattened array
-    logic [82-1:0][31:0] readback_array;
+    logic [83-1:0][31:0] readback_array;
     assign readback_array[0][7:0] = (decoded_reg_strb.I3C_EC.SecFwRecoveryIf.EXTCAP_HEADER && !decoded_req_is_wr) ? 8'hc0 : '0;
     assign readback_array[0][23:8] = (decoded_reg_strb.I3C_EC.SecFwRecoveryIf.EXTCAP_HEADER && !decoded_req_is_wr) ? 16'h20 : '0;
     assign readback_array[0][31:24] = '0;
@@ -7680,15 +7716,17 @@ module I3CCSR (
     assign readback_array[76][31:0] = (decoded_reg_strb.I3C_EC.SoCMgmtIf.T_FREE_REG && !decoded_req_is_wr) ? field_storage.I3C_EC.SoCMgmtIf.T_FREE_REG.T_FREE.value : '0;
     assign readback_array[77][31:0] = (decoded_reg_strb.I3C_EC.SoCMgmtIf.T_AVAL_REG && !decoded_req_is_wr) ? field_storage.I3C_EC.SoCMgmtIf.T_AVAL_REG.T_AVAL.value : '0;
     assign readback_array[78][31:0] = (decoded_reg_strb.I3C_EC.SoCMgmtIf.T_IDLE_REG && !decoded_req_is_wr) ? field_storage.I3C_EC.SoCMgmtIf.T_IDLE_REG.T_IDLE.value : '0;
-    assign readback_array[79][7:0] = (decoded_reg_strb.I3C_EC.CtrlCfg.EXTCAP_HEADER && !decoded_req_is_wr) ? 8'h2 : '0;
-    assign readback_array[79][23:8] = (decoded_reg_strb.I3C_EC.CtrlCfg.EXTCAP_HEADER && !decoded_req_is_wr) ? 16'h2 : '0;
-    assign readback_array[79][31:24] = '0;
-    assign readback_array[80][3:0] = '0;
-    assign readback_array[80][5:4] = (decoded_reg_strb.I3C_EC.CtrlCfg.CONTROLLER_CONFIG && !decoded_req_is_wr) ? field_storage.I3C_EC.CtrlCfg.CONTROLLER_CONFIG.OPERATION_MODE.value : '0;
-    assign readback_array[80][31:6] = '0;
-    assign readback_array[81][7:0] = (decoded_reg_strb.I3C_EC.TERMINATION_EXTCAP_HEADER && !decoded_req_is_wr) ? 8'h0 : '0;
-    assign readback_array[81][23:8] = (decoded_reg_strb.I3C_EC.TERMINATION_EXTCAP_HEADER && !decoded_req_is_wr) ? 16'h1 : '0;
-    assign readback_array[81][31:24] = '0;
+    assign readback_array[79][1:0] = (decoded_reg_strb.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG && !decoded_req_is_wr) ? field_storage.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG.SYS_CLK_FREQ.value : '0;
+    assign readback_array[79][31:2] = '0;
+    assign readback_array[80][7:0] = (decoded_reg_strb.I3C_EC.CtrlCfg.EXTCAP_HEADER && !decoded_req_is_wr) ? 8'h2 : '0;
+    assign readback_array[80][23:8] = (decoded_reg_strb.I3C_EC.CtrlCfg.EXTCAP_HEADER && !decoded_req_is_wr) ? 16'h2 : '0;
+    assign readback_array[80][31:24] = '0;
+    assign readback_array[81][3:0] = '0;
+    assign readback_array[81][5:4] = (decoded_reg_strb.I3C_EC.CtrlCfg.CONTROLLER_CONFIG && !decoded_req_is_wr) ? field_storage.I3C_EC.CtrlCfg.CONTROLLER_CONFIG.OPERATION_MODE.value : '0;
+    assign readback_array[81][31:6] = '0;
+    assign readback_array[82][7:0] = (decoded_reg_strb.I3C_EC.TERMINATION_EXTCAP_HEADER && !decoded_req_is_wr) ? 8'h0 : '0;
+    assign readback_array[82][23:8] = (decoded_reg_strb.I3C_EC.TERMINATION_EXTCAP_HEADER && !decoded_req_is_wr) ? 16'h1 : '0;
+    assign readback_array[82][31:24] = '0;
 
     // Reduce the array
     always_comb begin
@@ -7696,7 +7734,7 @@ module I3CCSR (
         readback_done = decoded_req & ~decoded_req_is_wr & ~decoded_strb_is_external;
         readback_err = '0;
         readback_data_var = '0;
-        for(int i=0; i<82; i++) readback_data_var |= readback_array[i];
+        for(int i=0; i<83; i++) readback_data_var |= readback_array[i];
         readback_data = readback_data_var;
     end
 
