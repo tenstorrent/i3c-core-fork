@@ -1037,6 +1037,15 @@ module i3c
       .hci_ibi_wready_o(hci_ibi_wready),
       .hci_ibi_wdata_i(hci_ibi_wdata),
 
+      // Controller configuration status
+      .set_dasa_i(set_dasa),
+      .set_dasa_valid_i(set_dasa_valid),
+      .set_dasa_virtual_device_i(set_dasa_virtual_device),
+      .rstdaa_i(rstdaa),
+      .newda_i(newda),
+      .set_newda_i(set_newda),
+      .set_newda_virtual_device_i(set_newda_virtual_device),
+
       .rst_action_i(rst_action),
       .rst_action_valid_i(rst_action_valid)
   );

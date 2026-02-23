@@ -273,6 +273,12 @@ module controller
   logic [19:0] t_bus_free;
   logic [19:0] t_bus_idle;
   logic [19:0] t_bus_available;
+  logic [19:0] t_high;
+  logic [19:0] t_low;
+  logic [19:0] t_hd_sta;
+  logic [19:0] t_su_sta;
+  logic [19:0] t_su_sto;
+  sys_clk_freq_e sys_clk_freq;
   logic [15:0] get_mwl;
   logic [15:0] get_mrl;
   logic [7:0] get_ibil;
@@ -363,6 +369,12 @@ module controller
       .t_hd_dat_o                     (t_hd_dat),
       .t_r_o                          (t_r),
       .t_f_o                          (t_f),
+      .t_high_o                       (t_high),
+      .t_low_o                        (t_low),
+      .t_hd_sta_o                     (t_hd_sta),
+      .t_su_sta_o                     (t_su_sta),
+      .t_su_sto_o                     (t_su_sto),
+      .sys_clk_freq_o                 (sys_clk_freq),
       .t_bus_free_o                   (t_bus_free),
       .t_bus_idle_o                   (t_bus_idle),
       .t_bus_available_o              (t_bus_available),
@@ -476,7 +488,14 @@ module controller
       .t_f_i(t_f),
       .t_bus_free_i(t_bus_free),
       .t_bus_idle_i(t_bus_idle),
-      .t_bus_available_i(t_bus_available)
+      .t_bus_available_i(t_bus_available),
+      .t_high_i(t_high),
+      .t_low_i(t_low),
+      .t_hd_sta_i(t_hd_sta),
+      .t_su_sta_i(t_su_sta),
+      .t_su_sto_i(t_su_sto),
+      .t_su_dat_i(t_su_dat),
+      .sys_clk_freq_i(sys_clk_freq)
   );
 `else
 always_comb begin

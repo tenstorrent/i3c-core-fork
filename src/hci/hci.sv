@@ -386,7 +386,8 @@ module hci
   logic [HciIbiDataWidth-1:0] hci_ibi_rd_data;
 
   always_comb begin
-    hci_ibi_rst = hwif_out_o.I3CBase.RESET_CONTROL.IBI_QUEUE_RST.value;
+    // hci_ibi_rst = hwif_out_o.I3CBase.RESET_CONTROL.IBI_QUEUE_RST.value;
+    hci_ibi_rst = hwif_base_i.RESET_CONTROL.IBI_QUEUE_RST.value;
     hwif_base_o.RESET_CONTROL.IBI_QUEUE_RST.hwclr = hci_ibi_rst_we & !hci_ibi_rst_next;
 
     hci_ibi_thld = hwif_pio_control_i.QUEUE_THLD_CTRL.IBI_STATUS_THLD.value;
@@ -437,8 +438,8 @@ module hci
     hwif_base_o.HC_CONTROL.RESUME.next = '0;
     hwif_base_o.HC_CONTROL.BUS_ENABLE.we = '0;
     hwif_base_o.HC_CONTROL.BUS_ENABLE.next = '0;
-    hwif_base_o.RESET_CONTROL.SOFT_RST.we = '0;
-    hwif_base_o.RESET_CONTROL.SOFT_RST.next = '0;
+    // hwif_base_o.RESET_CONTROL.SOFT_RST.we = '0;
+    // hwif_base_o.RESET_CONTROL.SOFT_RST.next = '0;
     hwif_base_o.PRESENT_STATE.AC_CURRENT_OWN.next = '0;
     hwif_base_o.INTR_STATUS.HC_INTERNAL_ERR_STAT.next = '0;
     hwif_base_o.INTR_STATUS.HC_SEQ_CANCEL_STAT.next = '0;
