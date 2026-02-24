@@ -4,7 +4,6 @@
 // Standalone adapter - no Caliptra dependency
 //
 
-`ifdef I3C_USE_APB
 module apb_adapter
   import I3CCSR_pkg::I3CCSR_DATA_WIDTH;
   import I3CCSR_pkg::I3CCSR_MIN_ADDR_WIDTH;
@@ -191,4 +190,3 @@ module apb_adapter
   end
 
 endmodule
-`endif

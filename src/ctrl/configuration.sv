@@ -7,6 +7,7 @@
 module configuration
     import i3c_pkg::start_stop_e;
     import i3c_pkg::sys_clk_freq_e;
+    import I3CCSR_pkg::CONTROLLER_SUPPORT;
 (
     input logic clk_i,
     input logic rst_ni,
@@ -94,10 +95,12 @@ module configuration
   assign i3c_standby_en_o = stby_cr_enable_init == 2'b10;
 
   // Bus Configuration
-`ifdef CONTROLLER_SUPPORT
   logic i2c_dev_present;
-  assign i2c_dev_present = hwif_out_i.I3CBase.HC_CONTROL.I2C_DEV_PRESENT.value;
-`endif // CONTROLLER_SUPPORT
+  if (CONTROLLER_SUPPORT) begin : gen_i2c_dev_present
+    assign i2c_dev_present = hwif_out_i.I3CBase.HC_CONTROL.I2C_DEV_PRESENT.value;
+  end else begin : gen_no_i2c_dev_present
+    assign i2c_dev_present = 1'b0;
+  end
 
   // Disables the TTI
   logic target_xact_enable;
@@ -106,25 +109,31 @@ module configuration
 
   // Define state: running, idle, waiting, halted, etc.
   logic bus_enable;
-`ifdef CONTROLLER_SUPPORT
   logic resume;
   logic abort;
-  assign bus_enable = hwif_out_i.I3CBase.HC_CONTROL.BUS_ENABLE.value;
-  assign resume = hwif_out_i.I3CBase.HC_CONTROL.RESUME.value;
-  assign abort = hwif_out_i.I3CBase.HC_CONTROL.ABORT.value;
-`else
-  assign bus_enable = 1'b1;
-`endif // CONTROLLER_SUPPORT
+  if (CONTROLLER_SUPPORT) begin : gen_bus_ctrl
+    assign bus_enable = hwif_out_i.I3CBase.HC_CONTROL.BUS_ENABLE.value;
+    assign resume = hwif_out_i.I3CBase.HC_CONTROL.RESUME.value;
+    assign abort = hwif_out_i.I3CBase.HC_CONTROL.ABORT.value;
+  end else begin : gen_no_bus_ctrl
+    assign bus_enable = 1'b1;
+    assign resume = 1'b0;
+    assign abort = 1'b0;
+  end
 
-`ifdef CONTROLLER_SUPPORT
   // These affect queue ctrl logic
   logic pio_enable;
   logic pio_abort;
   logic pio_rs;
-  assign pio_enable = hwif_out_i.PIOControl.PIO_CONTROL.ENABLE.value;
-  assign pio_abort = hwif_out_i.PIOControl.PIO_CONTROL.ABORT.value;
-  assign pio_rs = hwif_out_i.PIOControl.PIO_CONTROL.RS.value;
-`endif // CONTROLLER_SUPPORT
+  if (CONTROLLER_SUPPORT) begin : gen_pio_ctrl
+    assign pio_enable = hwif_out_i.PIOControl.PIO_CONTROL.ENABLE.value;
+    assign pio_abort = hwif_out_i.PIOControl.PIO_CONTROL.ABORT.value;
+    assign pio_rs = hwif_out_i.PIOControl.PIO_CONTROL.RS.value;
+  end else begin : gen_no_pio_ctrl
+    assign pio_enable = 1'b0;
+    assign pio_abort = 1'b0;
+    assign pio_rs = 1'b0;
+  end
 
   assign i2c_active_en_o = 1'b0;
   assign i2c_standby_en_o = 1'b0;

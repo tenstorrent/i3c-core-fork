@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 package i3c_pkg;
-  `include "i3c_defines.svh"
+  import I3CCSR_pkg::dat_depth;
+  import I3CCSR_pkg::dct_depth;
+
   `include "ccc.svh"
   `define I3C_RSVD_ADDR 7'h7E
   `define I3C_RSVD_BYTE 8'hFC
 
   localparam int unsigned RespErrIdWidth = 4;
-  localparam int unsigned DatAw = $clog2(`DAT_DEPTH);
-  localparam int unsigned DctAw = $clog2(`DCT_DEPTH);
+  // Note: dat_depth and dct_depth from I3CCSR_pkg are max_index (depth-1)
+  localparam int unsigned DatAw = $clog2(dat_depth + 1);
+  localparam int unsigned DctAw = $clog2(dct_depth + 1);
 
   // Bus signal state
   typedef struct packed {

@@ -4,7 +4,6 @@
 // Standalone adapter - no Caliptra dependency
 //
 
-`ifdef I3C_USE_AXI_LITE
 module axi_lite_adapter
   import I3CCSR_pkg::I3CCSR_DATA_WIDTH;
   import I3CCSR_pkg::I3CCSR_MIN_ADDR_WIDTH;
@@ -280,4 +279,3 @@ module axi_lite_adapter
   end
 
 endmodule
-`endif

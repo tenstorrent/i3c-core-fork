@@ -8,11 +8,13 @@
 module controller
   import controller_pkg::*;
   import i3c_pkg::*;
+  import I3CCSR_pkg::CONTROLLER_SUPPORT;
+  import I3CCSR_pkg::TARGET_SUPPORT;
 #(
     parameter int unsigned DatAw = i3c_pkg::DatAw,
-    parameter int unsigned DctAw = i3c_pkg::DctAw
+    parameter int unsigned DctAw = i3c_pkg::DctAw,
 
-`ifdef CONTROLLER_SUPPORT,
+    // HCI parameters (active when CONTROLLER_SUPPORT=1)
     parameter int unsigned HciRespFifoDepth = 64,
     parameter int unsigned HciCmdFifoDepth  = 64,
     parameter int unsigned HciRxFifoDepth   = 64,
@@ -35,9 +37,9 @@ module controller
     parameter int unsigned HciCmdThldWidth = 8,
     parameter int unsigned HciRxThldWidth = 3,
     parameter int unsigned HciTxThldWidth = 3,
-    parameter int unsigned HciIbiThldWidth = 8
-`endif  // CONTROLLER_SUPPORT
-`ifdef TARGET_SUPPORT,
+    parameter int unsigned HciIbiThldWidth = 8,
+
+    // TTI parameters (active when TARGET_SUPPORT=1)
     parameter int unsigned TtiRxDescFifoDepth = 64,
     parameter int unsigned TtiTxDescFifoDepth = 64,
     parameter int unsigned TtiRxFifoDepth = 64,
@@ -61,7 +63,6 @@ module controller
     parameter int unsigned TtiRxThldWidth = 3,
     parameter int unsigned TtiTxThldWidth = 3,
     parameter int unsigned TtiIbiThldWidth = 8
-`endif  // TARGET_SUPPORT
 ) (
     input logic clk_i,
     input logic rst_ni,
@@ -73,8 +74,7 @@ module controller
     output logic sel_od_pp_o,
     input logic arbitration_lost_i,
 
-`ifdef CONTROLLER_SUPPORT
-    // HCI queues
+    // HCI queues (active when CONTROLLER_SUPPORT=1)
     // Command FIFO
     input logic hci_cmd_queue_full_i,
     input logic [HciCmdFifoDepthWidth-1:0] hci_cmd_queue_depth_i,
@@ -138,9 +138,7 @@ module controller
     output logic [    127:0] dct_wdata_hw_o,
     input  logic [    127:0] dct_rdata_hw_i,
 
-`endif  // CONTROLLER_SUPPORT
-`ifdef TARGET_SUPPORT
-    // Target Transaction Interface
+    // Target Transaction Interface (active when TARGET_SUPPORT=1)
     // TTI: RX Descriptor
     input logic tti_rx_desc_queue_full_i,
     input logic [TtiRxDescFifoDepthWidth-1:0] tti_rx_desc_queue_depth_i,
@@ -199,7 +197,6 @@ module controller
     input logic tti_ibi_queue_rvalid_i,
     output logic tti_ibi_queue_rready_o,
     input logic [TtiIbiDataWidth-1:0] tti_ibi_queue_rdata_i,
-`endif  // TARGET_SUPPORT
 
     // I2C/I3C Bus condition detection
     output logic bus_start_o,
@@ -412,9 +409,9 @@ module controller
 
   assign recovery_mode = (hwif_rec_i.DEVICE_STATUS_0.DEV_STATUS.value == RecoveryMode);
 
-`ifdef CONTROLLER_SUPPORT
-  // Active controller
-  controller_active xcontroller_active (
+  if (CONTROLLER_SUPPORT) begin : gen_controller_active
+    // Active controller
+    controller_active xcontroller_active (
       .clk_i(clk_i),
       .rst_ni(rst_ni),
       .ctrl_bus_i(ctrl_bus_i[0:1]),
@@ -496,22 +493,23 @@ module controller
       .t_su_sto_i(t_su_sto),
       .t_su_dat_i(t_su_dat),
       .sys_clk_freq_i(sys_clk_freq)
-  );
-`else
-always_comb begin
-  err = '0;
-  irq = '0;
-  ctrl_scl_o[0] = 1'b1;
-  ctrl_scl_o[1] = 1'b1;
-  ctrl_sda_o[0] = 1'b1;
-  ctrl_sda_o[1] = 1'b1;
-  ctrl_sel_od_pp_i[0] = 1'b0;
-  ctrl_sel_od_pp_i[1] = 1'b0;
-end
-`endif  // CONTROLLER_SUPPORT
-`ifdef TARGET_SUPPORT
-  // Standby (Secondary) Controller
-  controller_standby xcontroller_standby (
+    );
+  end else begin : gen_no_controller_active
+    always_comb begin
+      err = '0;
+      irq = '0;
+      ctrl_scl_o[0] = 1'b1;
+      ctrl_scl_o[1] = 1'b1;
+      ctrl_sda_o[0] = 1'b1;
+      ctrl_sda_o[1] = 1'b1;
+      ctrl_sel_od_pp_i[0] = 1'b0;
+      ctrl_sel_od_pp_i[1] = 1'b0;
+    end
+  end
+
+  if (TARGET_SUPPORT) begin : gen_controller_standby
+    // Standby (Secondary) Controller
+    controller_standby xcontroller_standby (
       .clk_i(clk_i),
       .rst_ni(rst_ni),
       .ctrl_bus_i(ctrl_bus_i[2:3]),
@@ -641,17 +639,17 @@ end
       .recovery_mode_enter_i(recovery_mode_enter_i),
       .virtual_device_sel_o(virtual_device_sel_o),
       .xfer_in_progress_o(xfer_in_progress_o)
-  );
-`else
-always_comb begin
-  ctrl_scl_o[2] = 1'b1;
-  ctrl_scl_o[3] = 1'b1;
-  ctrl_sda_o[2] = 1'b1;
-  ctrl_sda_o[3] = 1'b1;
-  ctrl_sel_od_pp_i[2] = 1'b0;
-  ctrl_sel_od_pp_i[3] = 1'b0;
-end
-`endif  // TARGET_SUPPORT
+    );
+  end else begin : gen_no_controller_standby
+    always_comb begin
+      ctrl_scl_o[2] = 1'b1;
+      ctrl_scl_o[3] = 1'b1;
+      ctrl_sda_o[2] = 1'b1;
+      ctrl_sda_o[3] = 1'b1;
+      ctrl_sel_od_pp_i[2] = 1'b0;
+      ctrl_sel_od_pp_i[3] = 1'b0;
+    end
+  end
 
   // Route configuration signals to top level for PHY control
   assign i3c_active_en_o = i3c_active_en;

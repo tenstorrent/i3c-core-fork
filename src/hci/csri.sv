@@ -1,5 +1,7 @@
 module csri
   import i3c_pkg::*;
+  import I3CCSR_pkg::CONTROLLER_SUPPORT;
+  import I3CCSR_pkg::TARGET_SUPPORT;
 #(
     parameter int unsigned CsrDataWidth = 32,
     parameter int unsigned CsrAddrWidth = 12
@@ -7,37 +9,33 @@ module csri
     input clk_i,  // clock
     input rst_ni, // active low reset
 
-`ifdef TARGET_SUPPORT
-    // Target Transaction Interface CSRs
+    // Target Transaction Interface CSRs (active when TARGET_SUPPORT=1)
     input  I3CCSR_pkg::I3CCSR__I3C_EC__TTI__in_t  hwif_tti_i,
     output I3CCSR_pkg::I3CCSR__I3C_EC__TTI__out_t hwif_tti_o,
 
-    // Recovery interface CSRs
+    // Recovery interface CSRs (active when TARGET_SUPPORT=1)
     input  I3CCSR_pkg::I3CCSR__I3C_EC__SecFwRecoveryIf__in_t  hwif_rec_i,
     output I3CCSR_pkg::I3CCSR__I3C_EC__SecFwRecoveryIf__out_t hwif_rec_o,
 
-    // SoC Management CSR Interface
+    // SoC Management CSR Interface (active when TARGET_SUPPORT=1)
     input I3CCSR_pkg::I3CCSR__I3C_EC__SoCMgmtIf__in_t hwif_socmgmt_i,
     output I3CCSR_pkg::I3CCSR__I3C_EC__SoCMgmtIf__out_t hwif_socmgmt_o,
-`endif  // TARGET_SUPPORT
 
-`ifdef CONTROLLER_SUPPORT
-    // PIO CONTROL CSR interface
+    // PIO CONTROL CSR interface (active when CONTROLLER_SUPPORT=1)
     input  I3CCSR_pkg::I3CCSR__PIOControl__in_t  hwif_pio_control_i,
     output I3CCSR_pkg::I3CCSR__PIOControl__out_t hwif_pio_control_o,
 
-    // I3C BASE CSR interface
+    // I3C BASE CSR interface (active when CONTROLLER_SUPPORT=1)
     input  I3CCSR_pkg::I3CCSR__I3CBase__in_t  hwif_base_i,
     output I3CCSR_pkg::I3CCSR__I3CBase__out_t hwif_base_o,
 
-    // DAT CSR interface
+    // DAT CSR interface (active when CONTROLLER_SUPPORT=1)
     input  I3CCSR_pkg::I3CCSR__DAT__in_t  dat_i,
     output I3CCSR_pkg::I3CCSR__DAT__out_t dat_o,
 
-    // DCT CSR interface
+    // DCT CSR interface (active when CONTROLLER_SUPPORT=1)
     input  I3CCSR_pkg::I3CCSR__DCT__in_t  dct_i,
     output I3CCSR_pkg::I3CCSR__DCT__out_t dct_o,
-`endif  // CONTROLLER_SUPPORT
 
     output I3CCSR_pkg::I3CCSR__out_t hwif_out_o,
 
@@ -77,28 +75,36 @@ module csri
   assign hwif_in.rst_ni = rst_ni;
 
   always_comb begin : connect_hwif
-`ifdef CONTROLLER_SUPPORT
-    hwif_in.I3CBase = hwif_base_i;
-    hwif_in.PIOControl = hwif_pio_control_i;
-    hwif_in.DAT = dat_i;
-    hwif_in.DCT = dct_i;
+    // Default tie-offs for outputs when features disabled
+    hwif_base_o = '0;
+    hwif_pio_control_o = '0;
+    dat_o = '0;
+    dct_o = '0;
+    hwif_tti_o = '0;
+    hwif_rec_o = '0;
+    hwif_socmgmt_o = '0;
 
-    hwif_base_o = hwif_out_o.I3CBase;
-    hwif_pio_control_o = hwif_out_o.PIOControl;
-    dat_o = hwif_out_o.DAT;
-    dct_o = hwif_out_o.DCT;
-`endif  // CONTROLLER_SUPPORT
+    if (CONTROLLER_SUPPORT) begin
+      hwif_in.I3CBase = hwif_base_i;
+      hwif_in.PIOControl = hwif_pio_control_i;
+      hwif_in.DAT = dat_i;
+      hwif_in.DCT = dct_i;
 
-`ifdef TARGET_SUPPORT
-    hwif_tti_o = hwif_out_o.I3C_EC.TTI;
-    hwif_rec_o = hwif_out_o.I3C_EC.SecFwRecoveryIf;
-    hwif_socmgmt_o = hwif_out_o.I3C_EC.SoCMgmtIf;
+      hwif_base_o = hwif_out_o.I3CBase;
+      hwif_pio_control_o = hwif_out_o.PIOControl;
+      dat_o = hwif_out_o.DAT;
+      dct_o = hwif_out_o.DCT;
+    end
 
-    hwif_in.I3C_EC.TTI = hwif_tti_i;
-    hwif_in.I3C_EC.SecFwRecoveryIf = hwif_rec_i;
-    hwif_in.I3C_EC.SoCMgmtIf = hwif_socmgmt_i;
+    if (TARGET_SUPPORT) begin
+      hwif_tti_o = hwif_out_o.I3C_EC.TTI;
+      hwif_rec_o = hwif_out_o.I3C_EC.SecFwRecoveryIf;
+      hwif_socmgmt_o = hwif_out_o.I3C_EC.SoCMgmtIf;
 
-`endif  // TARGET_SUPPORT
+      hwif_in.I3C_EC.TTI = hwif_tti_i;
+      hwif_in.I3C_EC.SecFwRecoveryIf = hwif_rec_i;
+      hwif_in.I3C_EC.SoCMgmtIf = hwif_socmgmt_i;
+    end
   end
 
   // Update Standby Controller mode based on the controller configuration status

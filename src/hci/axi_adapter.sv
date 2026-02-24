@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-`include "i3c_defines.svh"
 
 module axi_adapter
   import I3CCSR_pkg::I3CCSR_DATA_WIDTH;

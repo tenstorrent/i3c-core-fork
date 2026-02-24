@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 `include "i3c_defines.svh"
 
-module i3c_wrapper #(
+module i3c_wrapper
+  import I3CCSR_pkg::CONTROLLER_SUPPORT;
+  import I3CCSR_pkg::TARGET_SUPPORT;
+#(
 `ifdef I3C_USE_AHB
     parameter int unsigned AhbDataWidth = `AHB_DATA_WIDTH,
     parameter int unsigned AhbAddrWidth = `AHB_ADDR_WIDTH,
@@ -173,15 +176,13 @@ module i3c_wrapper #(
     output irq_o
 );
 
-`ifdef CONTROLLER_SUPPORT
-  // DAT memory export interface
+  // DAT memory export interface (active when CONTROLLER_SUPPORT=1)
   i3c_pkg::dat_mem_src_t dat_mem_src;
   i3c_pkg::dat_mem_sink_t dat_mem_sink;
 
-  // DCT memory export interface
+  // DCT memory export interface (active when CONTROLLER_SUPPORT=1)
   i3c_pkg::dct_mem_src_t dct_mem_src;
   i3c_pkg::dct_mem_sink_t dct_mem_sink;
-`endif // CONTROLLER_SUPPORT
 
   i3c #(
 `ifdef I3C_USE_AHB
@@ -324,13 +325,11 @@ module i3c_wrapper #(
       .i3c_sda_oe_o(sda_oe),
       .i3c_scl_oe_o(scl_oe),
 
-`ifdef CONTROLLER_SUPPORT
       .dat_mem_src_i (dat_mem_src),
       .dat_mem_sink_o(dat_mem_sink),
 
       .dct_mem_src_i (dct_mem_src),
       .dct_mem_sink_o(dct_mem_sink),
-`endif // CONTROLLER_SUPPORT
 
       .recovery_payload_available_o(recovery_payload_available_o),
       .recovery_image_activated_o  (recovery_image_activated_o),
@@ -341,42 +340,50 @@ module i3c_wrapper #(
       .irq_o
   );
 
-`ifdef CONTROLLER_SUPPORT
-  prim_ram_1p_adv_i3ccore #(
-      .Depth(`DAT_DEPTH),
-      .Width(64),
-      .DataBitsPerMask(32)
-  ) dat_memory (
-      .clk_i,
-      .rst_ni,
-      .req_i(dat_mem_sink.req),
-      .write_i(dat_mem_sink.write),
-      .addr_i(dat_mem_sink.addr),
-      .wdata_i(dat_mem_sink.wdata),
-      .wmask_i(dat_mem_sink.wmask),
-      .rdata_o(dat_mem_src.rdata),
-      .rvalid_o(dat_mem_src.rvalid),  // Unused
-      .rerror_o(dat_mem_src.rerror),  // Unused
-      .cfg_i('0)  // Unused
-  );
+  if (CONTROLLER_SUPPORT) begin : gen_dat_dct_memory
+    prim_ram_1p_adv_i3ccore #(
+        .Depth(`DAT_DEPTH),
+        .Width(64),
+        .DataBitsPerMask(32)
+    ) dat_memory (
+        .clk_i,
+        .rst_ni,
+        .req_i(dat_mem_sink.req),
+        .write_i(dat_mem_sink.write),
+        .addr_i(dat_mem_sink.addr),
+        .wdata_i(dat_mem_sink.wdata),
+        .wmask_i(dat_mem_sink.wmask),
+        .rdata_o(dat_mem_src.rdata),
+        .rvalid_o(dat_mem_src.rvalid),  // Unused
+        .rerror_o(dat_mem_src.rerror),  // Unused
+        .cfg_i('0)  // Unused
+    );
 
-  prim_ram_1p_adv_i3ccore #(
-      .Depth(`DCT_DEPTH),
-      .Width(128),
-      .DataBitsPerMask(32)
-  ) dct_memory (
-      .clk_i,
-      .rst_ni,
-      .req_i(dct_mem_sink.req),
-      .write_i(dct_mem_sink.write),
-      .addr_i(dct_mem_sink.addr),
-      .wdata_i(dct_mem_sink.wdata),
-      .wmask_i(dct_mem_sink.wmask),
-      .rdata_o(dct_mem_src.rdata),
-      .rvalid_o(dct_mem_src.rvalid),  // Unused
-      .rerror_o(dct_mem_src.rerror),  // Unused
-      .cfg_i('0)  // Unused
-  );
-`endif // CONTROLLER_SUPPORT
+    prim_ram_1p_adv_i3ccore #(
+        .Depth(`DCT_DEPTH),
+        .Width(128),
+        .DataBitsPerMask(32)
+    ) dct_memory (
+        .clk_i,
+        .rst_ni,
+        .req_i(dct_mem_sink.req),
+        .write_i(dct_mem_sink.write),
+        .addr_i(dct_mem_sink.addr),
+        .wdata_i(dct_mem_sink.wdata),
+        .wmask_i(dct_mem_sink.wmask),
+        .rdata_o(dct_mem_src.rdata),
+        .rvalid_o(dct_mem_src.rvalid),  // Unused
+        .rerror_o(dct_mem_src.rerror),  // Unused
+        .cfg_i('0)  // Unused
+    );
+  end else begin : gen_no_dat_dct_memory
+    // Tie off memory interface signals when CONTROLLER_SUPPORT=0
+    assign dat_mem_src.rdata = '0;
+    assign dat_mem_src.rvalid = '0;
+    assign dat_mem_src.rerror = '0;
+    assign dct_mem_src.rdata = '0;
+    assign dct_mem_src.rvalid = '0;
+    assign dct_mem_src.rerror = '0;
+  end  // gen_dat_dct_memory
 
 endmodule

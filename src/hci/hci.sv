@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-`ifdef CONTROLLER_SUPPORT
 // I3C Host Controller Interface
 module hci
   import i3c_pkg::*;
@@ -461,4 +460,3 @@ module hci
   end
 
 endmodule : hci
-`endif // CONTROLLER_SUPPORT

@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-`ifdef CONTROLLER_SUPPORT
 // I3C Device Address/Characteristic Tables
 module dxt
   import I3CCSR_pkg::*;
@@ -191,4 +190,3 @@ module dxt
   end
 
 endmodule
-`endif // CONTROLLER_SUPPORT
