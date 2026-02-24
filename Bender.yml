@@ -5,6 +5,8 @@ package:
     - "CHIPS Alliance"
     - "Antmicro"
 
+# Note: I3CCSR_pkg.sv and i3c_pkg.sv are managed from top-level Bender.yml for correct ordering
+
 export_include_dirs:
   # i3c-core include directories
   - src
@@ -27,9 +29,9 @@ sources:
   - third_party/caliptra-rtl/src/axi/rtl/i3ccore_axi_pkg.sv
   # i3c-core packages
   - src/libs/mem/prim_ram_1p_pkg_i3ccore.sv
-  - src/csr/I3CCSR_pkg.sv
+  # I3CCSR_pkg.sv and i3c_pkg.sv come from top-level Bender.yml for correct ordering
   - src/ctrl/controller_pkg.sv
-  - src/i3c_pkg.sv
+  #- src/i3c_pkg.sv
 
   ################################################################
   # caliptra-rtl primitives
@@ -66,7 +68,10 @@ sources:
   ################################################################
   # i3c-core CSR
   ################################################################
-  - src/csr/I3CCSR.sv
+  # Using locally generated CSR files from tt-oca-hw
+  - ../../hw/periph/i3ccore_wrap/rtl/csr/I3CCSR_pkg.sv
+  - ../../hw/periph/i3ccore_wrap/rtl/csr/I3CCSR.sv
+  - ../../hw/periph/i3ccore_wrap/rtl/i3c_pkg.sv
   - src/interrupt.sv
 
   ################################################################
@@ -161,5 +166,5 @@ sources:
   ################################################################
   # i3c-core Top-level modules
   ################################################################
-  - src/i3c.sv
-  - src/i3c_wrapper.sv
+  # - src/i3c.sv
+  # - src/i3c_wrapper.sv
