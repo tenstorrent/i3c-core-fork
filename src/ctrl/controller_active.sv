@@ -242,7 +242,7 @@ module controller_active
       .i3c_rx_valid_i(i3c_rx_valid),
       .i3c_rx_byte_i(i3c_rx_byte),
 
-      .i3c_fsm_en_i,
+      .i3c_fsm_en_i(1'b1),
       .i3c_fsm_idle_o,
       .i3c_trans_mode_o(i3c_trans_mode),
       .err,

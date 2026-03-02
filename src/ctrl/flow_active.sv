@@ -476,7 +476,7 @@ module flow_active
     resp_desc.data_length = '0;
     i3c_tx_valid_o = 1'b0;
     i3c_tx_byte_o = '0;
-    i3c_tx_is_addr_o = 1'b0;
+    i3c_tx_is_addr_o = 1'b1;
     i3c_tx_use_tbit_o = 1'b0;
     i3c_start_stop_o = None;
     bus_active_d = bus_active_q;  // Default: maintain current state
@@ -610,6 +610,7 @@ module flow_active
       CCC_SendCCCCode: begin
         i3c_tx_byte_o = ccc_code;
         i3c_tx_valid_o = 1'b1;
+        i3c_tx_is_addr_o = 1'b0;
         i3c_tx_use_tbit_o = 1'b1;
       end
 
@@ -619,6 +620,7 @@ module flow_active
                         immediate_cmd_desc.def_or_data_byte1 :
                         regular_cmd_desc.dbp;
         i3c_tx_valid_o = 1'b1;
+        i3c_tx_is_addr_o = 1'b0;
         i3c_tx_use_tbit_o = 1'b1;
       end
 
@@ -640,7 +642,8 @@ module flow_active
           32'd1: begin
             // Send Dynamic Address + T-bit, then STOP
             // TODO: Should send actual dynamic address from DAT, not static
-            i3c_tx_byte_o = dat_rdata.dynamic_address;
+            i3c_tx_byte_o = {dat_rdata.dynamic_address[6:0], 1'b0};
+            i3c_tx_is_addr_o = 1'b0;
             i3c_tx_use_tbit_o = 1'b1;
             i3c_start_stop_o = Stop;
             bus_active_d = 1'b0;  // Bus released
@@ -659,6 +662,7 @@ module flow_active
         i3c_tx_valid_o = 1'b1;
         i3c_tx_byte_o = tx_data_byte;  // Counter starts at 0 for data phase
         i3c_tx_use_tbit_o = 1'b1;  // Push-pull mode with T-bit
+        i3c_tx_is_addr_o = 1'b0;
 
         // STOP after last data byte if TOC is set
         // Use appropriate toc field based on command attribute
@@ -672,6 +676,7 @@ module flow_active
       // I3CDataRead: Data phase only - receive bytes from target
       // Address phases handled by BroadcastAddr and TargetAddr states
       I3CDataRead: begin
+        i3c_tx_is_addr_o = 1'b0;
         transfer_cnt_rst = 1'b0;
         transfer_cnt_en = i3c_rx_valid_i;
         rx_data_phase_active = 1'b1;  // Enable shared RX accumulation
@@ -795,12 +800,16 @@ module flow_active
         // TODO
       end
 
-      // BroadcastAddr: Send 0x7E/W, then branch based on cmd_present
+      // BroadcastAddr: Send 0x7E/W, then branch based on if there is a CCC command to send
       BroadcastAddr: begin
         if (i3c_tx_ready_i) begin
-          if (cmd_present) begin
+          if (cmd_attr == AddressAssignment) begin
             state_next = CCC_SendCCCCode;  // CCC path
-          end else begin
+          end 
+          else if (cmd_present) begin
+            state_next = CCC_SendCCCCode;  // CCC path
+          end
+          else begin
             state_next = TargetAddr;        // Private transfer path
           end
         end

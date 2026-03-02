@@ -252,23 +252,22 @@ module axi_lite_adapter
 
         if (s_cpuif_rd_ack) begin
           state_d = READ_RESP;
-        end else if (!s_cpuif_req_stall_rd) begin
-          // Request accepted, wait for ack
-          state_d = READ_RESP;
-        end
+        end 
+
+        /* 
+         * if s_cpuif_req_stall_rd is 1, then do NOT transition to READ_RESP.
+         * Yes, s_cpuif_req will be 1 for multiple cycles, but in I3CCSR.sv if s_cpuif_req_stall_rd is 1,
+         * then it masks off the request, so it won't issue multiple reads!
+        */
+
       end
 
-      READ_RESP: begin
-        // Wait for read ack if not received yet
-        if (!s_cpuif_rd_ack && rresp_q == RESP_OKAY && rdata_q == '0) begin
-          // Still waiting for ack (crude check)
-          s_cpuif_req = 1'b0;
-        end
-
+      READ_RESP: begin        
         // Send read response
         rvalid_o = 1'b1;
         rdata_o = rdata_q;
         rresp_o = rresp_q;
+
         if (rready_i) begin
           state_d = IDLE;
         end
