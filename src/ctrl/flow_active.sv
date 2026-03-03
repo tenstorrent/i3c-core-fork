@@ -600,7 +600,7 @@ module flow_active
       // TargetAddr: Send target address + RnW with Repeated Start
       // Shared by both CCC direct and private transfers
       TargetAddr: begin
-        i3c_tx_byte_o = {dat_rdata.dynamic_address[7:1], (cmd_dir == Read) ? 1'b1 : 1'b0};
+        i3c_tx_byte_o = {dat_rdata.dynamic_address[6:0], (cmd_dir == Read) ? 1'b1 : 1'b0};
         i3c_tx_valid_o = 1'b1;
         i3c_start_stop_o = RepeatedStart;
         i3c_tx_is_addr_o = 1'b1;  // Open-drain, expects ACK
@@ -641,7 +641,7 @@ module flow_active
           end
           32'd1: begin
             // Send Dynamic Address + T-bit, then STOP
-            // TODO: Should send actual dynamic address from DAT, not static
+            // dat_rdata.dynamic_address[7] is 0, can be used to add parity bit but this is not computed from software. See I3C HCI Spec 8.1.2 for details.
             i3c_tx_byte_o = {dat_rdata.dynamic_address[6:0], 1'b0};
             i3c_tx_is_addr_o = 1'b0;
             i3c_tx_use_tbit_o = 1'b1;
