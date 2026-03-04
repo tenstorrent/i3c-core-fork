@@ -514,6 +514,7 @@ module i3c_controller_fsm
         // SCL low after 9th bit, signal ready for next byte
         scl_d = 1'b0;
         sda_d = 1'b1;
+        //TODO: should have sda_d value that is the same as AckPulse for T-bit stability during hold? 
         // Report ACK/NACK status
         if (tx_is_addr_q) begin
           rx_ack_o = ~ack_sampled;   // ACK = SDA low

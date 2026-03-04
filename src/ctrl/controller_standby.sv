@@ -244,14 +244,14 @@ module controller_standby
     tx_host_nack_o = sel_i2c_i3c ? i3c_tx_host_nack_o : i2c_tx_host_nack_o;
   end
 
-  logic parity_err;
+  i3c_resp_err_status_e err;
   logic get_status_done;
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (~rst_ni) begin
       err_o <= '0;
     end else begin
-      if (parity_err) err_o <= 1'b1;
+      if (err != Success) err_o <= 1'b1;
       if (get_status_done) err_o <= 1'b0;
     end
   end
@@ -482,7 +482,7 @@ module controller_standby
       .ibi_status_o(ibi_status_o),
       .ibi_status_we_o(ibi_status_we_o),
       .get_status_done_o(get_status_done),
-      .parity_err_o(parity_err),
+      .err_o(err),
       .peripheral_reset_o,
       .peripheral_reset_done_i,
       .escalated_reset_o,

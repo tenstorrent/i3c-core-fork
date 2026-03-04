@@ -130,7 +130,7 @@ module controller_standby_i3c
 
     output logic get_status_done_o,
 
-    output logic parity_err_o,
+    output i3c_resp_err_status_e err_o,
 
     output logic peripheral_reset_o,
     input  logic peripheral_reset_done_i,
@@ -257,7 +257,7 @@ module controller_standby_i3c
   //
   logic tx_pr_abort;
 
-  logic rx_overflow_err;
+  i3c_resp_err_status_e rx_error;
   logic bus_error;
   logic bus_busy;
   logic bus_free;
@@ -468,8 +468,7 @@ module controller_standby_i3c
       .sda_posedge_i              (ctrl_bus_i.sda.pos_edge),
       .bus_free_i                 (bus_free),
       .bus_idle_i                 (bus_idle),
-      .parity_err_o,
-      .rx_overflow_err_o          (rx_overflow_err),
+      .rx_error_o                 (rx_error),
       .virtual_device_sel_o       (virtual_device_sel_o),
       .xfer_in_progress_o         (xfer_in_progress_o)
   );
@@ -670,9 +669,8 @@ module controller_standby_i3c
       .bus_available_o  (bus_available)
   );
 
-  logic rx_error;
+  assign err_o = rx_error;
 
-  assign rx_error = parity_err_o | rx_overflow_err;
   descriptor_rx #(
       .TtiRxDescDataWidth(TtiRxDescDataWidth),
       .TtiRxDataWidth    (TtiRxDataWidth)

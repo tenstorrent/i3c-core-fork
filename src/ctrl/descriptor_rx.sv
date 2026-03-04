@@ -24,7 +24,9 @@
   There is no way to signal to the controller about this error,
   except for bit error in the GETSTATUS CCC.
 */
-module descriptor_rx #(
+module descriptor_rx
+  import i3c_pkg::*;
+#(
     parameter int unsigned TtiRxDescDataWidth = 32,
     parameter int unsigned TtiRxDataWidth = 8
 ) (
@@ -46,13 +48,13 @@ module descriptor_rx #(
     input logic rx_byte_last_i,
     input logic rx_byte_valid_i,
     output logic rx_byte_ready_o,
-    input logic rx_byte_err_i
+    input i3c_resp_err_status_e rx_byte_err_i
 );
 
   logic [31:0] rx_descriptor;
   logic [15:0] byte_counter;
   logic [15:0] byte_counter_q;
-  logic [3:0] rx_error;
+  i3c_resp_err_status_e rx_error;
 
   logic transfer_ended;
   logic transfer_ended_q;
@@ -77,16 +79,13 @@ module descriptor_rx #(
     if (!rst_ni) begin
       byte_counter_q <= '0;
       transfer_ended_q <= '0;
-      rx_error <= '0;
+      rx_error <= Success;
     end else begin
       transfer_ended_q <= transfer_ended;
       if (transfer_ended) begin
         byte_counter_q <= byte_counter;
       end
-      if (rx_byte_err_i)
-          rx_error <= 4'b0001;
-      else if (transfer_ended_q)
-          rx_error <= 4'b0000;
+      rx_error <= rx_byte_err_i;
     end
   end
 

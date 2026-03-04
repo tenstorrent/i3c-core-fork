@@ -160,6 +160,7 @@ module controller_active
   logic        i3c_rx_ack;
   logic        i3c_rx_nack;
   // RX interface
+  logic        i3c_rx_req;
   logic        i3c_rx_valid;
   logic [7:0]  i3c_rx_byte;
 
@@ -239,6 +240,7 @@ module controller_active
       .i3c_tx_use_tbit_o(i3c_tx_use_tbit),
       .i3c_rx_ack_i(i3c_rx_ack),
       .i3c_rx_nack_i(i3c_rx_nack),
+      .i3c_rx_req_o(i3c_rx_req),
       .i3c_rx_valid_i(i3c_rx_valid),
       .i3c_rx_byte_i(i3c_rx_byte),
 
@@ -359,7 +361,7 @@ module controller_active
       .rx_nack_o(i3c_rx_nack),
 
       // RX interface to flow_active
-      .rx_req_i(1'b0),              // TODO: Connect to flow_active RX request
+      .rx_req_i(i3c_rx_req),              // TODO: Connect to flow_active RX request
       .rx_valid_o(i3c_rx_valid),
       .rx_data_o(i3c_rx_byte),
 

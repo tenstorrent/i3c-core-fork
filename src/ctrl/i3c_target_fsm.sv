@@ -27,7 +27,9 @@
       * dynamic address will be used for I3C transfers
 */
 
-module i3c_target_fsm #(
+module i3c_target_fsm
+  import i3c_pkg::*;
+#(
     parameter int unsigned RxDataWidth  = 8,
     parameter int unsigned TxDataWidth  = 8,
     parameter int unsigned IbiDataWidth = 8
@@ -123,8 +125,7 @@ module i3c_target_fsm #(
     input logic bus_free_i,
     input logic bus_idle_i,
 
-    output logic parity_err_o,
-    output logic rx_overflow_err_o,
+    output i3c_resp_err_status_e rx_error_o,
     output logic virtual_device_sel_o,
     output logic xfer_in_progress_o,
 
@@ -281,20 +282,20 @@ module i3c_target_fsm #(
       last_addr_valid_o <= '1;
     end
 
-  logic parity_err;
+  logic parity_err, parity_err_d;
   always_ff @(posedge clk_i or negedge rst_ni) begin : latch_parity_error
     if (~rst_ni) begin
-      parity_err <= 1'b0;
+      parity_err_d <= 1'b0;
     end else begin
-      if (parity_err_o) begin
-        parity_err <= 1'b1;
+      if (parity_err) begin
+        parity_err_d <= 1'b1;
       end else if (target_idle_o) begin
-        parity_err <= 1'b0;
+        parity_err_d <= 1'b0;
       end
     end
   end
 
-  logic rx_overflow_err_q, rx_overflow_err_r;
+  logic rx_overflow_err, rx_overflow_err_q, rx_overflow_err_r;
   always_ff @(posedge clk_i or negedge rst_ni) begin : latch_rx_overflow_error
     if (~rst_ni) begin
       rx_overflow_err_r <= 1'b0;
@@ -305,13 +306,13 @@ module i3c_target_fsm #(
       else if (target_idle_o | state_d inside {RxFByte, Idle}) rx_overflow_err_r <= 1'b0;
     end
   end
-  assign rx_overflow_err_o = ~rx_overflow_err_q & rx_overflow_err_r;
+  assign rx_overflow_err = ~rx_overflow_err_q & rx_overflow_err_r;
 
   // RX FIFO valid when we finish reading byte (leave RxPWriteData) and there was no parity error
   logic rx_fifo_wvalid;
   assign rx_fifo_wvalid = (state_q == RxPWriteTbit) &
                             (state_d != RxPWriteTbit) &
-                            ~(parity_err | rx_overflow_err_o);
+                            ~(parity_err_d | rx_overflow_err);
 
   always_ff @(posedge clk_i or negedge rst_ni) begin : latch_rx_fifo_wvalid
     if (~rst_ni) begin
@@ -325,6 +326,23 @@ module i3c_target_fsm #(
       end
     end
   end
+
+  // TODO: add other error types to rx_error_o
+  // note: only one error status can be outputted. Currently this is the priority order. 
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if(~rst_ni) begin
+      rx_error_o <= Success;
+    end else begin
+      if(parity_err) begin
+        rx_error_o <= Parity;
+      end else if (rx_overflow_err) begin
+        rx_error_o <= Ovl;
+      end else begin
+        rx_error_o <= Success;
+      end
+    end
+  end
+
   // Last RX byte when we leave Private Write loop
   assign rx_last_byte_o = (state_q == RxPWriteData) & (state_d inside {RxFByte, Idle});
 
@@ -375,7 +393,7 @@ module i3c_target_fsm #(
     bus_addr_valid = '0;
     bus_rnw_d = '0;
     nack_transaction_d = '0;
-    parity_err_o = '0;
+    parity_err = '0;
     ibi_begin_o = '0;
     ccc_valid_o = 1'b0;
     ccc_code = '0;
@@ -438,7 +456,7 @@ module i3c_target_fsm #(
       end
       RxPWriteTbit: begin
         bus_rx_req_bit_o = ~bus_start_det;
-        if (rx_tbit_done) parity_err_o = (parity_bit != bus_rx_data_i[0]);
+        if (rx_tbit_done) parity_err = (parity_bit != bus_rx_data_i[0]);
       end
       TxPReadData: begin
         bus_tx_req_byte_o  = 1'b1;
@@ -481,7 +499,7 @@ module i3c_target_fsm #(
         bus_addr_valid = '0;
         bus_rnw_d = '0;
         nack_transaction_d = '0;
-        parity_err_o = '0;
+        parity_err = '0;
         ibi_begin_o = '0;
         ccc_valid_o = 1'b0;
         ccc_code = '0;
