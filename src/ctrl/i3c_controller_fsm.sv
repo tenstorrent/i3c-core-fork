@@ -369,15 +369,18 @@ module i3c_controller_fsm
     // 0 = OD mode, 1 = PP mode
 
     /*
-     * TODO: Look at 5.1.2.3 for handling sel_od_pp_o during transition periods. For now, atleast
+     * TODO: Look at I3C Basic 5.1.2.3 for handling sel_od_pp_o during transition periods. For now, atleast
     * for simulation this should be okay?
+   * 
+   * Also, Address Header following a Sr is Push-pull. I3C Basic 5.1.2.2.4
     */
     sel_od_pp_o = ~tx_is_addr_q && !(shift_reg == 8'h87);  // Default: PP for data, OD for address
     // TODO: Looking at the spec examples (ex. Annex D.2 Basic Spec) it seems they are staying in OD for the entire CCC command
     unique case (state_q)
       Idle: begin
         sda_d = 1'b1;
-        scl_d = 1'b1;
+        // scl_d = 1'b1;
+        scl_d = rx_req_i ? 1'b0 : 1'b1;  
       end
 
       Active: begin

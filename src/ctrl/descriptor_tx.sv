@@ -101,7 +101,8 @@ module descriptor_tx #(
     end
   end
 
-  assign data_len = tx_descriptor[15:0];
+  // data len is in the upper half of the tx_descriptor
+  assign data_len = tx_descriptor[31:16];
   assign data_len_words = TtiTxDescDataWidth'(data_len >> 2);
   // Add 1 to depth, because there is one word in the Nto8 converter
   assign tx_start = ~tx_pending && descriptor_valid &&

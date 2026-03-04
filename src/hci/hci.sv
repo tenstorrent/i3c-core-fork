@@ -450,11 +450,12 @@ module hci
     hwif_base_o.IBI_DATA_ABORT_CTRL.IBI_DATA_ABORT_MON.we = '0;
     hwif_base_o.IBI_DATA_ABORT_CTRL.IBI_DATA_ABORT_MON.next = '0;
 
-    hwif_pio_control_o.PIO_INTR_STATUS.TX_THLD_STAT.next = '0;
-    hwif_pio_control_o.PIO_INTR_STATUS.RX_THLD_STAT.next = '0;
-    hwif_pio_control_o.PIO_INTR_STATUS.IBI_STATUS_THLD_STAT.next = '0;
-    hwif_pio_control_o.PIO_INTR_STATUS.CMD_QUEUE_READY_STAT.next = '0;
-    hwif_pio_control_o.PIO_INTR_STATUS.RESP_READY_STAT.next = '0;
+    // Connect threshold triggers to PIO interrupt status bits
+    hwif_pio_control_o.PIO_INTR_STATUS.TX_THLD_STAT.next = hci_tx_ready_thld_trig_o;
+    hwif_pio_control_o.PIO_INTR_STATUS.RX_THLD_STAT.next = hci_rx_ready_thld_trig_o;
+    hwif_pio_control_o.PIO_INTR_STATUS.IBI_STATUS_THLD_STAT.next = hci_ibi_ready_thld_trig_o;
+    hwif_pio_control_o.PIO_INTR_STATUS.CMD_QUEUE_READY_STAT.next = hci_cmd_ready_thld_trig_o;
+    hwif_pio_control_o.PIO_INTR_STATUS.RESP_READY_STAT.next = hci_resp_ready_thld_trig_o;
     hwif_pio_control_o.PIO_INTR_STATUS.TRANSFER_ABORT_STAT.next = '0;
     hwif_pio_control_o.PIO_INTR_STATUS.TRANSFER_ERR_STAT.next = '0;
   end

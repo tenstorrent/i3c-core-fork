@@ -111,6 +111,7 @@ module flow_active
     input  logic       i3c_rx_nack_i,        // NACK received
 
     // I3C RX interface - bytes received from i3c_controller_fsm
+    output logic       i3c_rx_req_o,         // Request next byte from I3C Controller FSM (flow control for RX data)
     input  logic       i3c_rx_valid_i,       // Received byte valid from controller FSM
     input  logic [7:0] i3c_rx_byte_i,        // Received byte data
 
@@ -267,6 +268,19 @@ module flow_active
   assign host_enable_o = 1'b1;
   assign fmt_fifo_depth_o = 8'd1;
 
+  logic rx_req_o, rx_req_o_next;
+  assign i3c_rx_req_o = rx_req_o;
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (~rst_ni) begin
+      rx_req_o <= 1'b0;
+    end 
+    else if (i3c_tx_ready_i & i3c_tx_valid_o) begin
+      // rx_req_o is set in the state machine logic when expecting to receive a byte from I3C Controller FSM
+      rx_req_o <= rx_req_o_next;
+    end
+  end
+
   // Capture data from DAT/DCT tables
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (~rst_ni) begin
@@ -307,6 +321,17 @@ module flow_active
     end
   end
 
+  logic i3c_rx_valid_prev, i3c_rx_valid_negedge;
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (~rst_ni) begin
+      i3c_rx_valid_prev <= 1'b0;
+      i3c_rx_valid_negedge <= 1'b0;
+    end else begin
+      i3c_rx_valid_prev <= i3c_rx_valid_i;
+      i3c_rx_valid_negedge <= i3c_rx_valid_prev & ~i3c_rx_valid_i;  // Pulse on falling edge of i3c_rx_valid_i
+    end
+  end
   always_comb begin
     // Counter now starts at 0 for data phase (address phases in separate states)
     unique case (transfer_cnt & 32'd3)
@@ -486,6 +511,7 @@ module flow_active
     rx_word_accum_d = rx_word_accum_q;
     rx_queue_wvalid_o = 1'b0;
     rx_queue_wdata_o = '0;
+    rx_req_o_next = cmd_dir;
     unique case (state)
       // Idle: Wait for command appearance in the Command Queue
       Idle: begin
@@ -595,15 +621,17 @@ module flow_active
         i3c_start_stop_o = bus_active_q ? RepeatedStart : Start;
         bus_active_d = 1'b1;  // Bus is now active
         i3c_tx_is_addr_o = 1'b1;  // Open-drain, expects ACK
+        rx_req_o_next = Write;
       end
 
       // TargetAddr: Send target address + RnW with Repeated Start
       // Shared by both CCC direct and private transfers
       TargetAddr: begin
-        i3c_tx_byte_o = {dat_rdata.dynamic_address[6:0], (cmd_dir == Read) ? 1'b1 : 1'b0};
+        i3c_tx_byte_o = {dat_rdata.dynamic_address[6:0], cmd_dir};
         i3c_tx_valid_o = 1'b1;
         i3c_start_stop_o = RepeatedStart;
         i3c_tx_is_addr_o = 1'b1;  // Open-drain, expects ACK
+        rx_req_o_next = Write;
       end
 
       // CCC_SendCCCCode: Send CCC code byte with T-bit
@@ -676,9 +704,11 @@ module flow_active
       // I3CDataRead: Data phase only - receive bytes from target
       // Address phases handled by BroadcastAddr and TargetAddr states
       I3CDataRead: begin
+        i3c_tx_valid_o = 1'b1;
+        i3c_tx_byte_o = 8'h00;  // Dummy byte, data is actually received from i3c_rx_byte_i
         i3c_tx_is_addr_o = 1'b0;
         transfer_cnt_rst = 1'b0;
-        transfer_cnt_en = i3c_rx_valid_i;
+        transfer_cnt_en = i3c_rx_valid_negedge;  // Increment counter on falling edge of i3c_rx_valid_i to count received bytes
         rx_data_phase_active = 1'b1;  // Enable shared RX accumulation
 
         // Track received data length for response (counter starts at 0)
@@ -713,7 +743,7 @@ module flow_active
     endcase
 
     // Shared RX byte accumulation logic - ONLY accumulates, PushRxData handles pushing
-    if (rx_data_phase_active && i3c_rx_valid_i) begin
+    if (rx_data_phase_active && i3c_rx_valid_negedge) begin
       // Shift byte into accumulator based on byte position
       unique case (rx_byte_cnt_q)
         2'd0: rx_word_accum_d[7:0]   = i3c_rx_byte_i;
@@ -902,7 +932,7 @@ module flow_active
       // I3CDataRead: Data phase only (counter starts at 0)
       I3CDataRead: begin
         // Transition to PushRxData when ready to push
-        if (i3c_rx_valid_i) begin
+        if (i3c_rx_valid_negedge) begin
           // 4 bytes accumulated OR last byte of transfer
           if (rx_byte_cnt_q == 2'd3 || transfer_cnt == data_length - 32'd1) begin
             state_next = PushRxData;
