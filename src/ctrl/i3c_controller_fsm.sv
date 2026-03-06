@@ -191,10 +191,10 @@ module i3c_controller_fsm
           
           tSetupStart: tcount_d = 20'(pp_half_period >> 1);  // Half of half-period for margin
           tHoldStart:  tcount_d = 20'(pp_half_period >> 1);
-          tSetupData:  tcount_d = 20'd2;  // Minimum 2 cycles for setup for HDR mode at 100mhz clk_i. 
+          tSetupData:  tcount_d = 20'd2; 
           tClockLow:   tcount_d = 20'(pp_half_period) - 20'd2;       // 50% duty
           tClockPulse: tcount_d = 20'(pp_half_period);       // 50% duty
-          tHoldBit:    tcount_d = 20'd2;  // Minimum 2 cycles for hold
+          tHoldBit:    tcount_d = 20'd2; 
           tSetupStop:  tcount_d = 20'(pp_half_period >> 1);
           // TODO: Maybe need to add tAckPulse, due to t_dig_h from I3C Basic Spec 5.1.2.3.1 if tClockPulse is unsufficient
           tHoldStop:   tcount_d = 20'(pp_half_period >> 1);
