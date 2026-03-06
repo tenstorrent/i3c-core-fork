@@ -404,7 +404,8 @@ module controller
       .set_ibil_i                     (set_ibil),
       .mwl_i                          (mwl),
       .mrl_i                          (mrl),
-      .ibil_i                         (ibil)
+      .ibil_i                         (ibil),
+      .sel_od_pp_i                    (sel_od_pp_o)
   );
 
   assign recovery_mode = (hwif_rec_i.DEVICE_STATUS_0.DEV_STATUS.value == RecoveryMode);

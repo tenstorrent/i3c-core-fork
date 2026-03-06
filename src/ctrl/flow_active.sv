@@ -114,6 +114,7 @@ module flow_active
     output logic       i3c_rx_req_o,         // Request next byte from I3C Controller FSM (flow control for RX data)
     input  logic       i3c_rx_valid_i,       // Received byte valid from controller FSM
     input  logic [7:0] i3c_rx_byte_i,        // Received byte data
+    input  logic       i3c_rx_byte_last_i,   // Last byte of data sent by Target
 
     // I3C FSM control & status
     input  logic i3c_fsm_en_i,
@@ -146,7 +147,7 @@ module flow_active
     InitI2CRead = 6'd8,
     StallWrite = 6'd9,
     StallRead = 6'd10,
-    // IssueCmd removed - merged into unified FSM
+    // TODO: handle error handling 
     WriteResp = 6'd12,
     I3CAddressAssignment = 6'd13,
     I3CDataWrite = 6'd14,       // DATA PHASE ONLY (also used by ImmediateDataTransfer)
@@ -160,7 +161,6 @@ module flow_active
   } flow_fsm_state_e;
 
 
-  // CCC FSM merged into main flow_fsm_state_e - no separate enum needed
 
   // BytesBeforeImmData only used by I2CWriteImmediate (legacy I2C path)
   // TODO: Set from HC_CONTROL.IBA_INCLUDE: 1 if IBA is disabled, otherwise 2
@@ -220,7 +220,7 @@ module flow_active
   // Response Queue
   i3c_response_desc_t resp_desc;
   i3c_resp_err_status_e resp_err_status_q, resp_err_status_d;
-  logic [15:0] resp_data_length_q, resp_data_length_d;
+  logic [15:0] resp_data_length_d, resp_data_length_q;
 
   // Bus active state - tracks if bus is currently owned (no STOP issued)
   // Used to determine if next transaction starts with Start or RepeatedStart
@@ -321,17 +321,20 @@ module flow_active
     end
   end
 
-  logic i3c_rx_valid_prev, i3c_rx_valid_negedge;
+  logic i3c_rx_valid_prev, i3c_rx_valid_posedge;
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (~rst_ni) begin
       i3c_rx_valid_prev <= 1'b0;
-      i3c_rx_valid_negedge <= 1'b0;
     end else begin
+      // Pulse on posedge of i3c_rx_valid_i
+      // this is because i3c_rx_valid_i is high for >1 cycle, and don't want to read twice
       i3c_rx_valid_prev <= i3c_rx_valid_i;
-      i3c_rx_valid_negedge <= i3c_rx_valid_prev & ~i3c_rx_valid_i;  // Pulse on falling edge of i3c_rx_valid_i
     end
   end
+
+  assign i3c_rx_valid_posedge = ~i3c_rx_valid_prev & i3c_rx_valid_i;
+
   always_comb begin
     // Counter now starts at 0 for data phase (address phases in separate states)
     unique case (transfer_cnt & 32'd3)
@@ -443,14 +446,14 @@ module flow_active
   // Catch every data_length update during the Controller operation
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (~rst_ni) begin
-      resp_data_length_d <= '0;
+      resp_data_length_q <= '0;
     end else begin
       if (i3c_fsm_idle_o) begin
-        resp_data_length_d <= '0;
-      end else if (|resp_data_length_q) begin
-        resp_data_length_d <= resp_data_length_q;
+        resp_data_length_q <= '0;
+      end else if (|resp_data_length_d) begin
+        resp_data_length_q <= resp_data_length_d;
       end else begin
-        resp_data_length_d <= resp_data_length_d;
+        resp_data_length_q <= resp_data_length_q;
       end
     end
   end
@@ -494,7 +497,7 @@ module flow_active
     dct_wdata_hw_o = '0;
     ibi_queue_wdata_o = '0;
     dct_index_hw_o = '0;
-    resp_data_length_q = '0;
+    resp_data_length_d = '0;
     resp_queue_wdata_o = '0;
     resp_desc.err_status = i3c_resp_err_status_e'(0);
     resp_desc.tid = '0;
@@ -537,7 +540,7 @@ module flow_active
         fmt_fifo_rvalid_o = 1'b1;
         fmt_flag_start_before_o = 1'b0;
         fmt_flag_stop_after_o = 1'b0;
-        resp_data_length_q = '0;
+        resp_data_length_d = '0;
         unique case (transfer_cnt)
           // TODO: Add support for broadcast address control before private transfers. This can
           // be realized via HC_CONTROL.I2C_DEV_PRESENT and HC_CONTROL.IBA_INCLUDE register fields.
@@ -708,27 +711,18 @@ module flow_active
         i3c_tx_byte_o = 8'h00;  // Dummy byte, data is actually received from i3c_rx_byte_i
         i3c_tx_is_addr_o = 1'b0;
         transfer_cnt_rst = 1'b0;
-        transfer_cnt_en = i3c_rx_valid_negedge;  // Increment counter on falling edge of i3c_rx_valid_i to count received bytes
+        transfer_cnt_en = i3c_rx_valid_posedge;  // Increment counter on pos edge of i3c_rx_valid_i to count received bytes
         rx_data_phase_active = 1'b1;  // Enable shared RX accumulation
 
         // Track received data length for response (counter starts at 0)
-        resp_data_length_q = 16'(transfer_cnt + 1);
-
-        // Issue STOP on last data byte if TOC bit is set
-        // Use appropriate toc field based on command attribute
-        if (transfer_cnt == data_length - 32'd1) begin
-          if ((cmd_attr == ImmediateDataTransfer) ? immediate_cmd_desc.toc : regular_cmd_desc.toc) begin
-            i3c_start_stop_o = Stop;
-            bus_active_d = 1'b0;  // Bus released
-          end
-        end
+        resp_data_length_d = 16'(transfer_cnt + 1);
       end
       // WriteResp: Generate Response Descriptor and load it to Response Queue
       WriteResp: begin
         resp_queue_wvalid_o = 1'b0;
         resp_desc.err_status = resp_err_status_d;
         resp_desc.tid = cmd_tid;
-        resp_desc.data_length = resp_data_length_d;
+        resp_desc.data_length = resp_data_length_q;
 
         if (resp_queue_wready_i) begin
           resp_queue_wvalid_o = 1'b1;
@@ -743,7 +737,7 @@ module flow_active
     endcase
 
     // Shared RX byte accumulation logic - ONLY accumulates, PushRxData handles pushing
-    if (rx_data_phase_active && i3c_rx_valid_negedge) begin
+    if (rx_data_phase_active && i3c_rx_valid_posedge) begin
       // Shift byte into accumulator based on byte position
       unique case (rx_byte_cnt_q)
         2'd0: rx_word_accum_d[7:0]   = i3c_rx_byte_i;
@@ -802,7 +796,7 @@ module flow_active
         if (~rx_queue_full_i) begin
           // Push succeeded, decide next state based on transfer completion
           // Counter now starts at 0 for data phase
-          if (transfer_cnt >= data_length) begin
+          if (i3c_rx_byte_last_i) begin
             // Transfer complete
             state_next = WriteResp;
           end else begin
@@ -907,6 +901,8 @@ module flow_active
       I3CAddressAssignment: begin
         // Complete after sending both static addr and dynamic addr
         // TODO: Support multi-target using addr_cmd_desc.dev_count
+        // TODO: Address command descriptor doesn't have I3C Speed Mode, so right now it's going to sdr1 instead of sdr0
+        // Not fatal but yeah 
         if (i3c_tx_ready_i && transfer_cnt == 32'd1) begin
           state_next = WriteResp;
         end
@@ -932,9 +928,9 @@ module flow_active
       // I3CDataRead: Data phase only (counter starts at 0)
       I3CDataRead: begin
         // Transition to PushRxData when ready to push
-        if (i3c_rx_valid_negedge) begin
+        if (i3c_rx_valid_posedge) begin
           // 4 bytes accumulated OR last byte of transfer
-          if (rx_byte_cnt_q == 2'd3 || transfer_cnt == data_length - 32'd1) begin
+          if (rx_byte_cnt_q == 2'd3 || i3c_rx_byte_last_i) begin
             state_next = PushRxData;
           end
         end

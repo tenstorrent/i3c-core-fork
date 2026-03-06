@@ -16,6 +16,14 @@ module i3c_controller_fsm
 
     // I3C Bus interface
     input  logic ctrl_scl_i,
+    /*
+     * Note: ctrl_scl_i is a few cycles delayed from ctrl_scl_o.
+     * In i3c_phy.sv, the caliptra_prim_flop_2sync module adds 2 clock cycles for metastability protection on the input path:
+
+      Additionally, if t_r_i/t_f_i are non zero (in PP mode these get set to 0) 
+      , In bus_monitor.sv:52-61, previous-cycle values are stored for edge detection in the edge_detector module:
+     * 
+     */ 
     input  logic ctrl_sda_i,
     output logic ctrl_scl_o,
     output logic ctrl_sda_o,
@@ -54,6 +62,7 @@ module i3c_controller_fsm
     input  logic       rx_req_i,         // Read byte request
     output logic       rx_valid_o,       // Received byte valid (pulses 1 cycle)
     output logic [7:0] rx_data_o,        // Received byte data
+    output logic       rx_data_last_o,     // Last byte of data target is sending 
 
     output logic       sel_od_pp_o       // Select signal for OD vs PP mode (for timing and output control logic
 );
@@ -64,8 +73,6 @@ module i3c_controller_fsm
    * - during open drain mode, add behaviour if target takes control of the SDA bus ex. NACKs
    *   (if sda_o does not match sda_i, that means target is driving the line and FSM should adapt accordingly)
    * - if there are errors, need to handle behaviour such as aborting the transfer and resetting the FSM to idle state.
-   * - add logic for OE (output enable) signals for proper tri-state control
-   
    if tx_is_addr_i = 1, and the sda the controller drives does not match sda_i, then that could mean an IBI
    */
 
@@ -184,12 +191,12 @@ module i3c_controller_fsm
           
           tSetupStart: tcount_d = 20'(pp_half_period >> 1);  // Half of half-period for margin
           tHoldStart:  tcount_d = 20'(pp_half_period >> 1);
-          tSetupData:  tcount_d = 20'd2;  // Minimum 2 cycles for setup
-          tClockLow:   tcount_d = 20'(pp_half_period);       // 50% duty
+          tSetupData:  tcount_d = 20'd2;  // Minimum 2 cycles for setup for HDR mode at 100mhz clk_i. 
+          tClockLow:   tcount_d = 20'(pp_half_period) - 20'd2;       // 50% duty
           tClockPulse: tcount_d = 20'(pp_half_period);       // 50% duty
           tHoldBit:    tcount_d = 20'd2;  // Minimum 2 cycles for hold
           tSetupStop:  tcount_d = 20'(pp_half_period >> 1);
-          // TODO: Maybe need to add tAckPulse, due to t_dig_h from I3C Basic Spec 5.1.2.3.1
+          // TODO: Maybe need to add tAckPulse, due to t_dig_h from I3C Basic Spec 5.1.2.3.1 if tClockPulse is unsufficient
           tHoldStop:   tcount_d = 20'(pp_half_period >> 1);
           tOneDelay:   tcount_d = 20'd2;
           tNoDelay:    tcount_d = 20'd1;
@@ -298,10 +305,6 @@ module i3c_controller_fsm
     SetupStart,   // START: Both lines released high
     HoldStart,    // START: SDA low, SCL high
     ClockStart,   // START: SCL pulled low, prepare for data
-    SetupSr,      // Sr: SCL low, release SDA high
-    HoldSr,       // Sr: SCL high, SDA high (setup)
-    FallSr,       // Sr: SDA falls while SCL high (Sr condition)
-    ClockSr,      // Sr: SCL goes low after Sr
     ClockLow,     // TX Data: SCL low, drive data onto SDA
     ClockPulse,   // TX Data: SCL high, data stable
     HoldBit,      // TX Data: SCL low after pulse, prepare next bit
@@ -364,6 +367,7 @@ module i3c_controller_fsm
     rx_nack_o = 1'b0;
     rx_valid_o = 1'b0;
     rx_data_o = read_byte;
+    rx_data_last_o = 1'b0;
     log_start_d = log_start_q;
 
     // 0 = OD mode, 1 = PP mode
@@ -372,7 +376,7 @@ module i3c_controller_fsm
      * TODO: Look at I3C Basic 5.1.2.3 for handling sel_od_pp_o during transition periods. For now, atleast
     * for simulation this should be okay?
    * 
-   * Also, Address Header following a Sr is Push-pull. I3C Basic 5.1.2.2.4
+   * Also, Address Header following a Sr is Push-pull. I3C Basic 5.1.2.2.4. For now keeping it in OD 
     */
     sel_od_pp_o = ~tx_is_addr_q && !(shift_reg == 8'h87);  // Default: PP for data, OD for address
     // TODO: Looking at the spec examples (ex. Annex D.2 Basic Spec) it seems they are staying in OD for the entire CCC command
@@ -407,30 +411,6 @@ module i3c_controller_fsm
 
       ClockStart: begin
         // SCL goes low, SDA stays low, prepare to drive first data bit
-        scl_d = 1'b0;
-        sda_d = 1'b0;
-      end
-
-      SetupSr: begin
-        // SCL low, release SDA high for repeated start setup
-        scl_d = 1'b0;
-        sda_d = 1'b1;
-      end
-
-      HoldSr: begin
-        // SCL high, SDA high - setup time before Sr
-        scl_d = 1'b1;
-        sda_d = 1'b1;
-      end
-
-      FallSr: begin
-        // SDA falls while SCL high - this is the repeated start condition
-        scl_d = 1'b1;
-        sda_d = 1'b0;
-      end
-
-      ClockSr: begin
-        // SCL goes low after Sr, SDA stays low
         scl_d = 1'b0;
         sda_d = 1'b0;
       end
@@ -591,6 +571,7 @@ module i3c_controller_fsm
         sel_od_pp_o = 1'b0;  // Open Drain
         // Output RX data
         rx_valid_o = 1'b1;
+        rx_data_last_o = !rx_tbit_q;
         rx_data_o = read_byte;
       end
 
@@ -632,37 +613,6 @@ module i3c_controller_fsm
           sample_start_stop = 1'b1;  // Latch command signals at the start of a transaction
         end
         
-        // if (host_enable_i && rx_req_i) begin
-        //   // Enter RX (read) mode
-        //   read_byte_clr = 1'b1;
-        //   bit_clr = 1'b1;
-        //   state_d = ReadClockLow;
-        //   load_tcount = 1'b1;
-        //   tcount_sel = tClockLow;
-        // end else if (host_enable_i && tx_valid_i) begin
-        //   load_tx_data = 1'b1;
-        //   bit_clr = 1'b1;
-        //   unique case (tx_start_stop_i)
-        //     Start: begin
-        //       // START requested before byte
-        //       state_d = SetupStart;
-        //       load_tcount = 1'b1;
-        //       tcount_sel = tSetupStart;
-        //     end
-        //     RepeatedStart: begin
-        //       // Repeated Start requested before byte
-        //       state_d = SetupSr;
-        //       load_tcount = 1'b1;
-        //       tcount_sel = tSetupStart;  // Use same timing as START setup
-        //     end
-        //     default: begin
-        //       // No START/Sr (None or Stop), go directly to data transmission
-        //       state_d = ClockLow;
-        //       load_tcount = 1'b1;
-        //       tcount_sel = tClockLow;
-        //     end
-        //   endcase
-        // end
       end
 
       Active: begin
@@ -799,41 +749,6 @@ module i3c_controller_fsm
             load_tcount = 1'b1;
             tcount_sel = tNoDelay;  // No delay, immediately fetch next byte
           end
-          // else if (tx_start_stop_q == Start) begin
-          //   // Start requested after this byte
-          //   state_d = SetupSr;
-          //   load_tcount = 1'b1;
-          //   tcount_sel = tClockLow;  // Hold SCL low briefly
-          // end
-          //  else if (tx_start_stop_q == RepeatedStart) begin
-          //   // Repeated Start requested after this byte
-          //   state_d = SetupSr;
-          //   load_tcount = 1'b1;
-          //   tcount_sel = tClockLow;  // Hold SCL low briefly
-          //  end
-
-          //  unique case(tx_start_stop_q)
-          //   None: begin
-          //     state_d = Idle;
-          //     load_tcount = 1'b1;
-          //     tcount_sel = tNoDelay;
-          //   end
-          //   Stop: begin
-          //     state_d = SetupStop;
-          //     load_tcount = 1'b1;
-          //     tcount_sel = tClockLow;  // Hold SCL low briefly
-          //   end
-          //   Start: begin
-          //     state_d = SetupSr;
-          //     load_tcount = 1'b1;
-          //     tcount_sel = tClockLow;  // Hold SCL low briefly
-          //   end
-          //   RepeatedStart: begin
-          //     state_d = SetupSr;
-          //     load_tcount = 1'b1;
-          //     tcount_sel = tClockLow;  // Hold SCL low briefly
-          //   end
-          // endcase
         end
       end
 
@@ -932,7 +847,7 @@ module i3c_controller_fsm
 
       ReadTbitHold: begin
         if (tcount_q == 20'd1) begin
-          if (!rx_tbit_q) begin
+          if (rx_tbit_q == 1'b0) begin
             // T-bit=0: Target is done, issue STOP
             state_d = SetupStop;
             load_tcount = 1'b1;

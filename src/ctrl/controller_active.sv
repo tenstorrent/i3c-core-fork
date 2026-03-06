@@ -163,6 +163,7 @@ module controller_active
   logic        i3c_rx_req;
   logic        i3c_rx_valid;
   logic [7:0]  i3c_rx_byte;
+  logic        i3c_rx_data_last;
 
   // TODO: Connect I2C Controller SDA/SCL to I3C Flow FSM
 
@@ -243,6 +244,7 @@ module controller_active
       .i3c_rx_req_o(i3c_rx_req),
       .i3c_rx_valid_i(i3c_rx_valid),
       .i3c_rx_byte_i(i3c_rx_byte),
+      .i3c_rx_byte_last_i(i3c_rx_data_last),
 
       .i3c_fsm_en_i(1'b1),
       .i3c_fsm_idle_o,
@@ -364,6 +366,7 @@ module controller_active
       .rx_req_i(i3c_rx_req),              // TODO: Connect to flow_active RX request
       .rx_valid_o(i3c_rx_valid),
       .rx_data_o(i3c_rx_byte),
+      .rx_data_last_o(i3c_rx_data_last),
 
       // Mode selection output
       .sel_od_pp_o(phy_sel_od_pp_o[1])

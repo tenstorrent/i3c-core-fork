@@ -79,7 +79,10 @@ module configuration
     input logic set_ibil_i,
     input logic [15:0] mwl_i,
     input logic [15:0] mrl_i,
-    input logic [ 7:0] ibil_i
+    input logic [ 7:0] ibil_i,
+
+    // OD/PP mode selection for edge detector timing
+    input logic sel_od_pp_i
 );
 
   // Mode of operation
@@ -152,8 +155,9 @@ module configuration
   // Configuration: bus_monitor
   assign t_su_dat_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_SU_DAT_REG.T_SU_DAT.value);
   assign t_hd_dat_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_HD_DAT_REG.T_HD_DAT.value);
-  assign t_r_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_R_REG.T_R.value);
-  assign t_f_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_F_REG.T_F.value);
+  // In PP mode, rise/fall times are near-zero (actively driven), so bypass edge detector delay
+  assign t_r_o = sel_od_pp_i ? 20'b0 : 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_R_REG.T_R.value);
+  assign t_f_o = sel_od_pp_i ? 20'b0 : 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_F_REG.T_F.value);
   assign t_high_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_HIGH_REG.T_HIGH.value);
   assign t_low_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_LOW_REG.T_LOW.value);
   assign t_hd_sta_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_HD_STA_REG.T_HD_STA.value);
