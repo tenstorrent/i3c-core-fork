@@ -25,7 +25,7 @@
   except for bit error in the GETSTATUS CCC.
 */
 module descriptor_rx
-  import i3c_pkg::*;
+  import i3c_pkg::i3c_resp_err_status_e;
 #(
     parameter int unsigned TtiRxDescDataWidth = 32,
     parameter int unsigned TtiRxDataWidth = 8
@@ -79,7 +79,7 @@ module descriptor_rx
     if (!rst_ni) begin
       byte_counter_q <= '0;
       transfer_ended_q <= '0;
-      rx_error <= Success;
+      rx_error <= i3c_pkg::Success;
     end else begin
       transfer_ended_q <= transfer_ended;
       if (transfer_ended) begin

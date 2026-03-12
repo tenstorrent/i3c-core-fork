@@ -2,8 +2,7 @@
 //
 // I3C Controller FSM
 // Handles SCL timing generation for both Open Drain (OD) and Push Pull (PP) modes.
-// OD mode uses CSR timing parameters (same as I2C).
-// PP mode uses simplified 50% duty cycle derived from sys_clk_freq and SDR mode.
+// Both OD and PP modes use CSR timing parameters.
 //
 // Interface designed to connect directly to flow_active.sv
 
@@ -28,9 +27,15 @@ module i3c_controller_fsm
     output logic ctrl_scl_o,
     output logic ctrl_sda_o,
 
-    // PP mode timing inputs
-    input  sys_clk_freq_e sys_clk_freq_i,  // System clock frequency selection (from CSR)
-    input  i3c_trans_mode_e mode_i,      // SDR0-4 speed selection (from command descriptor)
+    // PP mode timing inputs (from CSRs)
+    input  logic [19:0] t_r_pp_i,         // Rise time (PP mode, typically 0)
+    input  logic [19:0] t_f_pp_i,         // Fall time (PP mode, typically 0)
+    input  logic [19:0] thigh_pp_i,       // SCL high period (PP mode)
+    input  logic [19:0] tlow_pp_i,        // SCL low period (PP mode)
+    input  logic [19:0] tsu_pp_i,         // Data setup time (PP mode)
+    input  logic [19:0] thd_pp_i,         // Data hold time (PP mode)
+    input  logic [19:0] t_casr_i,         // Controller Abort/Stop time (PP mode)
+    input  logic [19:0] t_cbsr_i,         // Controller Bit Start time (PP mode)
 
     // OD mode timing inputs (from CSRs, same as I2C FSM)
     input  logic [19:0] thigh_i,         // SCL high period
@@ -85,80 +90,18 @@ module i3c_controller_fsm
   logic tx_use_tbit_q;
 
   // ============================================================================
-  // PP Half-Period Lookup Table
-  // ============================================================================
-  // Half-period values are pre-calculated for supported system clock frequencies.
-  // Values use ceiling division to ensure SCL frequency never exceeds spec max. from I3C TCRI 7.1.1.1
-  // Formula: pp_half_period = ceil(sys_clk_freq_mhz * 1e6 / (2 * sdr_freq_hz))
-
-  logic [7:0] pp_half_period;
-
-  //TODO add i2c speeds if i2c_cmd
-  always_comb begin
-    unique case (sys_clk_freq_i)
-      SysClk100MHz: begin
-        // 100 MHz system clock
-        unique case (mode_i)
-          sdr0:    pp_half_period = 8'd4;    // 12.5 MHz SCL
-          sdr1:    pp_half_period = 8'd7;    // ~7.14 MHz SCL
-          sdr2:    pp_half_period = 8'd9;    // ~5.56 MHz SCL
-          sdr3:    pp_half_period = 8'd13;   // ~3.85 MHz SCL
-          sdr4:    pp_half_period = 8'd25;   // 2 MHz SCL
-          default: pp_half_period = 8'd25;   // Default to slowest
-        endcase
-      end
-      SysClk150MHz: begin
-        // 150 MHz system clock
-        unique case (mode_i)
-          sdr0:    pp_half_period = 8'd6;    // 12.5 MHz SCL
-          sdr1:    pp_half_period = 8'd10;   // ~7.5 MHz SCL
-          sdr2:    pp_half_period = 8'd13;   // ~5.77 MHz SCL
-          sdr3:    pp_half_period = 8'd19;   // ~3.95 MHz SCL
-          sdr4:    pp_half_period = 8'd38;   // ~1.97 MHz SCL
-          default: pp_half_period = 8'd38;   // Default to slowest
-        endcase
-      end
-      SysClk200MHz: begin
-        // 200 MHz system clock
-        unique case (mode_i)
-          sdr0:    pp_half_period = 8'd8;    // 12.5 MHz SCL
-          sdr1:    pp_half_period = 8'd13;   // ~7.69 MHz SCL
-          sdr2:    pp_half_period = 8'd17;   // ~5.88 MHz SCL
-          sdr3:    pp_half_period = 8'd25;   // 4 MHz SCL
-          sdr4:    pp_half_period = 8'd50;   // 2 MHz SCL
-          default: pp_half_period = 8'd50;   // Default to slowest
-        endcase
-      end
-      default: begin
-        // Invalid enum value - default to 100 MHz values
-        unique case (mode_i)
-          sdr0:    pp_half_period = 8'd4;
-          sdr1:    pp_half_period = 8'd7;
-          sdr2:    pp_half_period = 8'd9;
-          sdr3:    pp_half_period = 8'd13;
-          sdr4:    pp_half_period = 8'd25;
-          default: pp_half_period = 8'd25;
-        endcase
-      end
-    endcase
-  end
-
-  // TODO: Switching from PP to OD mode mid-transfer (repeated start with different address type) may require special handling to ensure timing requirements are met for both modes.
-  // I3C Basic spec 5.1.2.3 
-
-  // ============================================================================
   // Timing Counter
   // ============================================================================
   typedef enum logic [3:0] {
-    tSetupStart,  // START setup: t_r + tsu_sta (OD) or pp_half_period/2 (PP)
-    tHoldStart,   // START hold:  t_f + thd_sta (OD) or pp_half_period/2 (PP)
-    tSetupData,   // Data setup:  t_r + tsu_dat (OD) or 1 (PP)
-    tClockLow,    // SCL low:     tlow - thd_dat (OD) or half_period (PP)
-    tClockPulse,  // SCL high:    t_r + thigh (OD) or half_period (PP)
-    tHoldBit,     // Bit hold:    t_f + thd_dat (OD) or 1 (PP)
-    tSetupStop,   // STOP setup:  t_r + tsu_sto (OD) or pp_half_period/2 (PP)
-    tHoldStop,    // Bus free:    t_r + t_buf - tsu_sta (OD) or pp_half_period/2 (PP)
-    tOneDelay, 
+    tSetupStart,  // START setup: t_r + tsu_sta (OD) or t_r_pp + t_cbsr (PP)
+    tHoldStart,   // START hold:  t_f + thd_sta (OD) or t_f_pp + t_casr (PP)
+    tSetupData,   // Data setup:  t_r + tsu_dat (OD) or t_r_pp + tsu_pp (PP)
+    tClockLow,    // SCL low:     tlow - thd_dat (OD) or tlow_pp - thd_pp (PP)
+    tClockPulse,  // SCL high:    t_r + thigh (OD) or t_r_pp + thigh_pp (PP)
+    tHoldBit,     // Bit hold:    t_f + thd_dat (OD) or t_f_pp + thd_pp (PP)
+    tSetupStop,   // STOP setup:  t_r + tsu_sto (OD) or t_r_pp + t_casr (PP)
+    tHoldStop,    // Bus free:    t_r + t_buf - tsu_sta (OD/PP, uses OD t_buf for both)
+    tOneDelay,
     tNoDelay      // Minimal delay
   } tcount_sel_e;
 
@@ -167,6 +110,7 @@ module i3c_controller_fsm
   logic        load_tcount;
   tcount_sel_e tcount_sel;
 
+  // TODO: Maybe need to add tAckPulse, due to t_dig_h from I3C Basic Spec 5.1.2.3.1 if tClockPulse is unsufficient
   always_comb begin : counter_functions
     tcount_d = tcount_q;
     if (load_tcount) begin
@@ -186,18 +130,16 @@ module i3c_controller_fsm
           default:     tcount_d = 20'd1;
         endcase
       end else begin
-        // Push Pull mode: simplified timing with some margin
+        // Push Pull mode: use CSR timing parameters (same pattern as OD)
         unique case (tcount_sel)
-          
-          tSetupStart: tcount_d = 20'(pp_half_period >> 1);  // Half of half-period for margin
-          tHoldStart:  tcount_d = 20'(pp_half_period >> 1);
-          tSetupData:  tcount_d = 20'd2; 
-          tClockLow:   tcount_d = 20'(pp_half_period) - 20'd2;       // 50% duty
-          tClockPulse: tcount_d = 20'(pp_half_period);       // 50% duty
-          tHoldBit:    tcount_d = 20'd2; 
-          tSetupStop:  tcount_d = 20'(pp_half_period >> 1);
-          // TODO: Maybe need to add tAckPulse, due to t_dig_h from I3C Basic Spec 5.1.2.3.1 if tClockPulse is unsufficient
-          tHoldStop:   tcount_d = 20'(pp_half_period >> 1);
+          tSetupStart: tcount_d = t_r_pp_i + t_cbsr_i;           // Rise + CBS (like t_r + tsu_sta)
+          tHoldStart:  tcount_d = t_f_pp_i + t_casr_i;           // Fall + CAS (like t_f + thd_sta)
+          tSetupData:  tcount_d = t_r_pp_i + tsu_pp_i;           // Rise + data setup
+          tClockLow:   tcount_d = tlow_pp_i - thd_pp_i;          // Low minus hold
+          tClockPulse: tcount_d = t_r_pp_i + thigh_pp_i;         // Rise + high period
+          tHoldBit:    tcount_d = t_f_pp_i + thd_pp_i;           // Fall + data hold
+          tSetupStop:  tcount_d = t_r_pp_i + t_casr_i;           // Rise + CAS (like t_r + tsu_sto)
+          tHoldStop:   tcount_d = t_r_pp_i + t_buf_i - t_cbsr_i; // Rise + bus_free - CBS (uses OD t_buf)
           tOneDelay:   tcount_d = 20'd2;
           tNoDelay:    tcount_d = 20'd1;
           default:     tcount_d = 20'd1;
@@ -219,18 +161,20 @@ module i3c_controller_fsm
   // ============================================================================
   // Bit Counter
   // ============================================================================
-  logic [3:0] bit_index;  // 4 bits to count 0-8 (8 data bits + 1 ACK/T-bit)
+  // as sf sf sf sf sf before
+  // before
+  logic [2:0] bit_index;  // 4 bits to count 0-8 (8 data bits + 1 ACK/T-bit)
   logic       bit_decr;
-  logic       bit_clr;
+  logic       bit_index_clear;
   logic [7:0] shift_reg;
   logic       shift_data_en;
   logic       load_tx_data;
 
   always_ff @(posedge clk_i or negedge rst_ni) begin : bit_counter
     if (!rst_ni) begin
-      bit_index <= 4'd8;  // Start at 8 (will decrement to 7 for MSB)
-    end else if (bit_clr) begin
-      bit_index <= 4'd8;
+      bit_index <= 3'd7;  
+    end else if (bit_index_clear) begin
+      bit_index <= 3'd7;
     end else if (bit_decr) begin
       bit_index <= bit_index - 1'b1;
     end
@@ -242,9 +186,6 @@ module i3c_controller_fsm
       shift_reg <= 8'h00;
     end else if (load_tx_data) begin
       shift_reg <= tx_data_i;
-    end else if (shift_data_en) begin
-      // Shift in from SDA (MSB first) - for RX
-      shift_reg <= {shift_reg[6:0], ctrl_sda_i};
     end
   end
 
@@ -267,7 +208,6 @@ module i3c_controller_fsm
   // ============================================================================
   logic [7:0] read_byte;       // Shift register for incoming data (MSB first)
   logic       read_byte_clr;   // Clear at start of new RX byte
-  // Note: shift_data_en declared above in Bit Counter section, reused for RX
 
   // RX shift register - MSB first
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -424,10 +364,8 @@ module i3c_controller_fsm
         if (tx_start_stop_q == RepeatedStart && !log_start_q) begin
           sda_d = 1'b1;
         end
-        else if (bit_index >= 4'd1) begin
-          sda_d = shift_reg[bit_index[2:0] - 3'b1];
-        end else begin
-          sda_d = shift_reg[0];
+        else begin
+          sda_d = shift_reg[bit_index];
         end
       end
 
@@ -435,21 +373,16 @@ module i3c_controller_fsm
       ClockPulse: begin
         // SCL high, keep data stable
         scl_d = 1'b1;
-        if (bit_index >= 4'd1) begin
-          sda_d = shift_reg[bit_index[2:0] - 3'b1];
-        end else begin
-          sda_d = shift_reg[0];
-        end
+        
+        sda_d = shift_reg[bit_index];
+        
       end
 
       HoldBit: begin
         // SCL goes low after pulse
         scl_d = 1'b0;
-        if (bit_index >= 4'd1) begin
-          sda_d = shift_reg[bit_index[2:0] - 3'b1];
-        end else begin
-          sda_d = shift_reg[0];
-        end
+        
+        sda_d = shift_reg[bit_index];
       end
 
       AckLow: begin
@@ -468,15 +401,6 @@ module i3c_controller_fsm
 
       AckPulse: begin
         // SCL high for 9th bit - sample ACK or keep T-bit stable
-        // scl_d = 1'b1;
-        // if (tx_is_addr_q) begin
-        //   sda_d = 1'b0; // Consult I3C Basic Spec 5.1.2.3.1
-        // end else if (tx_use_tbit_q) begin
-        //   sda_d = 1'b0;  // Keep T-bit stable
-        // end else begin
-        //   sda_d = 1'b1;
-        // end
-        // SCL low for 9th bit
         scl_d = 1'b1;
         if (tx_is_addr_q) begin
           // Address byte: release SDA for target to ACK
@@ -497,6 +421,7 @@ module i3c_controller_fsm
         //TODO: should have sda_d value that is the same as AckPulse for T-bit stability during hold? 
         // Report ACK/NACK status
         if (tx_is_addr_q) begin
+          // TODO: change this to just 1 signal
           rx_ack_o = ~ack_sampled;   // ACK = SDA low
           rx_nack_o = ack_sampled;   // NACK = SDA high
         end
@@ -529,6 +454,7 @@ module i3c_controller_fsm
       // ========================================================================
       // RX Data Bit States - controller releases SDA, target drives
       // ========================================================================
+      // TODO: sel_od_pp_o shouldn't be necessarily/always driven in here incase the user wants to keep it in open drain
       ReadClockLow: begin
         scl_d = 1'b0;   // SCL low
         sda_d = 1'b1;   // Release SDA (target drives)
@@ -567,6 +493,7 @@ module i3c_controller_fsm
         scl_d = 1'b0;   // SCL low
         // If T-bit=0 (target done): drive SDA low to acknowledge end
         // If T-bit=1 (target has more): keep SDA released
+        // TODO: you don't need to double drive sda_d line to the same value
         sda_d = rx_tbit_q ? 1'b1 : 1'b0;  // Drive low if target done (T-bit=0)
         sel_od_pp_o = 1'b0;  // Open Drain
         // Output RX data
@@ -591,7 +518,7 @@ module i3c_controller_fsm
     load_tcount = 1'b0;
     tcount_sel = tNoDelay;
     bit_decr = 1'b0;
-    bit_clr = 1'b0;
+    bit_index_clear = 1'b0;
     shift_data_en = 1'b0;
     load_tx_data = 1'b0;
     sample_ack = 1'b0;
@@ -609,7 +536,7 @@ module i3c_controller_fsm
           tcount_sel = tOneDelay;  // One cycle delay to latch on start_stop signals
           tx_ready_o = 1'b1;
           load_tx_data = 1'b1;
-          bit_clr = 1'b1;
+          bit_index_clear = 1'b1;
           sample_start_stop = 1'b1;  // Latch command signals at the start of a transaction
         end
         
@@ -621,7 +548,7 @@ module i3c_controller_fsm
         if (rx_req_i) begin
           // Enter RX (read) mode
           read_byte_clr = 1'b1;
-          bit_clr = 1'b1;
+          bit_index_clear = 1'b1;
           state_d = ReadClockLow;
           load_tcount = 1'b1;
           tcount_sel = tClockLow;
@@ -701,7 +628,7 @@ module i3c_controller_fsm
 
       HoldBit: begin
         if (tcount_q == 20'd1) begin
-          if (bit_index == 4'd1) begin
+          if (bit_index == 3'd0) begin
             // Last data bit done, go to 9th bit (ACK/T-bit)
             state_d = AckLow;
             load_tcount = 1'b1;
@@ -717,7 +644,9 @@ module i3c_controller_fsm
       end
 
       AckLow: begin
+        // TODO: move this inside of tcount_q == 20'd1
         // Sample ACK on entry to AckLow (target drives SDA after SCL falls)
+        // See if we can move the sample_ack to AckPulse state
         if (tx_is_addr_q) begin
           sample_ack = 1'b1;
         end
@@ -756,7 +685,7 @@ module i3c_controller_fsm
         if (tx_valid_i) begin
           tx_ready_o = 1'b1;
           load_tx_data = 1'b1;
-          bit_clr = 1'b1;
+          bit_index_clear = 1'b1;
           state_d = Active;  // Go back to Active to check for next byte's start/stop conditions
           load_tcount = 1'b1;
           tcount_sel = tOneDelay;
@@ -810,7 +739,7 @@ module i3c_controller_fsm
 
       ReadHoldBit: begin
         if (tcount_q == 20'd1) begin
-          if (bit_index == 4'd1) begin
+          if (bit_index == 3'd0) begin
             // Last data bit done, go to 9th bit (sample T-bit from target)
             state_d = ReadTbitLow;
             load_tcount = 1'b1;

@@ -275,7 +275,15 @@ module controller
   logic [19:0] t_hd_sta;
   logic [19:0] t_su_sta;
   logic [19:0] t_su_sto;
-  sys_clk_freq_e sys_clk_freq;
+  // PP mode timing wires
+  logic [19:0] t_r_pp;
+  logic [19:0] t_f_pp;
+  logic [19:0] t_high_pp;
+  logic [19:0] t_low_pp;
+  logic [19:0] t_su_pp;
+  logic [19:0] t_hd_pp;
+  logic [19:0] t_casr;
+  logic [19:0] t_cbsr;
   logic [15:0] get_mwl;
   logic [15:0] get_mrl;
   logic [7:0] get_ibil;
@@ -371,7 +379,14 @@ module controller
       .t_hd_sta_o                     (t_hd_sta),
       .t_su_sta_o                     (t_su_sta),
       .t_su_sto_o                     (t_su_sto),
-      .sys_clk_freq_o                 (sys_clk_freq),
+      .t_r_pp_o                       (t_r_pp),
+      .t_f_pp_o                       (t_f_pp),
+      .t_high_pp_o                    (t_high_pp),
+      .t_low_pp_o                     (t_low_pp),
+      .t_su_pp_o                      (t_su_pp),
+      .t_hd_pp_o                      (t_hd_pp),
+      .t_casr_o                       (t_casr),
+      .t_cbsr_o                       (t_cbsr),
       .t_bus_free_o                   (t_bus_free),
       .t_bus_idle_o                   (t_bus_idle),
       .t_bus_available_o              (t_bus_available),
@@ -412,7 +427,13 @@ module controller
 
   if (CONTROLLER_SUPPORT) begin : gen_controller_active
     // Active controller
-    controller_active xcontroller_active (
+    controller_active #(
+      .HciRespFifoDepth(HciRespFifoDepth),
+      .HciCmdFifoDepth(HciCmdFifoDepth),
+      .HciRxFifoDepth(HciRxFifoDepth),
+      .HciTxFifoDepth(HciTxFifoDepth),
+      .HciIbiFifoDepth(HciIbiFifoDepth)
+    ) xcontroller_active (
       .clk_i(clk_i),
       .rst_ni(rst_ni),
       .ctrl_bus_i(ctrl_bus_i[0:1]),
@@ -493,7 +514,14 @@ module controller
       .t_su_sta_i(t_su_sta),
       .t_su_sto_i(t_su_sto),
       .t_su_dat_i(t_su_dat),
-      .sys_clk_freq_i(sys_clk_freq)
+      .t_r_pp_i(t_r_pp),
+      .t_f_pp_i(t_f_pp),
+      .t_high_pp_i(t_high_pp),
+      .t_low_pp_i(t_low_pp),
+      .t_su_pp_i(t_su_pp),
+      .t_hd_pp_i(t_hd_pp),
+      .t_casr_i(t_casr),
+      .t_cbsr_i(t_cbsr)
     );
   end else begin : gen_no_controller_active
     always_comb begin
@@ -510,7 +538,13 @@ module controller
 
   if (TARGET_SUPPORT) begin : gen_controller_standby
     // Standby (Secondary) Controller
-    controller_standby xcontroller_standby (
+    controller_standby #(
+      .TtiRxDescFifoDepth(TtiRxDescFifoDepth),
+      .TtiTxDescFifoDepth(TtiTxDescFifoDepth),
+      .TtiRxFifoDepth(TtiRxFifoDepth),
+      .TtiTxFifoDepth(TtiTxFifoDepth),
+      .TtiIbiFifoDepth(TtiIbiFifoDepth)
+    ) xcontroller_standby (
       .clk_i(clk_i),
       .rst_ni(rst_ni),
       .ctrl_bus_i(ctrl_bus_i[2:3]),

@@ -450,14 +450,23 @@ module hci
     hwif_base_o.IBI_DATA_ABORT_CTRL.IBI_DATA_ABORT_MON.we = '0;
     hwif_base_o.IBI_DATA_ABORT_CTRL.IBI_DATA_ABORT_MON.next = '0;
 
-    // Connect threshold triggers to PIO interrupt status bits
-    hwif_pio_control_o.PIO_INTR_STATUS.TX_THLD_STAT.next = hci_tx_ready_thld_trig_o;
-    hwif_pio_control_o.PIO_INTR_STATUS.RX_THLD_STAT.next = hci_rx_ready_thld_trig_o;
-    hwif_pio_control_o.PIO_INTR_STATUS.IBI_STATUS_THLD_STAT.next = hci_ibi_ready_thld_trig_o;
-    hwif_pio_control_o.PIO_INTR_STATUS.CMD_QUEUE_READY_STAT.next = hci_cmd_ready_thld_trig_o;
-    hwif_pio_control_o.PIO_INTR_STATUS.RESP_READY_STAT.next = hci_resp_ready_thld_trig_o;
-    hwif_pio_control_o.PIO_INTR_STATUS.TRANSFER_ABORT_STAT.next = '0;
-    hwif_pio_control_o.PIO_INTR_STATUS.TRANSFER_ERR_STAT.next = '0;
+    // NOTE: *_FORCE signals are controlled by software. Software is responsible for disabling after enabling it
+    // (no clear on write) See I3C HCI 7.5.12
+    hwif_pio_control_o.PIO_INTR_STATUS.TX_THLD_STAT.next = hci_tx_ready_thld_trig_o
+        | hwif_pio_control_i.PIO_INTR_FORCE.TX_THLD_FORCE.value;
+    hwif_pio_control_o.PIO_INTR_STATUS.RX_THLD_STAT.next = hci_rx_ready_thld_trig_o
+        | hwif_pio_control_i.PIO_INTR_FORCE.RX_THLD_FORCE.value;
+    hwif_pio_control_o.PIO_INTR_STATUS.IBI_STATUS_THLD_STAT.next = hci_ibi_ready_thld_trig_o
+        | hwif_pio_control_i.PIO_INTR_FORCE.IBI_THLD_FORCE.value;
+    hwif_pio_control_o.PIO_INTR_STATUS.CMD_QUEUE_READY_STAT.next = hci_cmd_ready_thld_trig_o
+        | hwif_pio_control_i.PIO_INTR_FORCE.CMD_QUEUE_READY_FORCE.value;
+    hwif_pio_control_o.PIO_INTR_STATUS.RESP_READY_STAT.next = hci_resp_ready_thld_trig_o
+        | hwif_pio_control_i.PIO_INTR_FORCE.RESP_READY_FORCE.value;
+    // TODO: add TRANSFER_ABORT/TRANSFER_ERR behaviour
+    hwif_pio_control_o.PIO_INTR_STATUS.TRANSFER_ABORT_STAT.next = '0
+        | hwif_pio_control_i.PIO_INTR_FORCE.TRANSFER_ABORT_FORCE.value;
+    hwif_pio_control_o.PIO_INTR_STATUS.TRANSFER_ERR_STAT.next = '0
+        | hwif_pio_control_i.PIO_INTR_FORCE.TRANSFER_ERR_FORCE.value;
   end
 
 endmodule : hci

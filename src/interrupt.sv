@@ -26,7 +26,7 @@ module interrupt # (
     logic  trg;
 
     // Interrupt request input
-    assign irq = (irq_i | irq_force_i);
+    assign irq = sts_ena_i && (irq_i | irq_force_i);
 
     // Trigger on edge
     generate if (Edge == 1'b1) begin

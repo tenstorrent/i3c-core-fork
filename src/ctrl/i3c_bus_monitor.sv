@@ -7,7 +7,7 @@
 I3C bus monitor. Detects HDR exit pattern and reset pattern
 */
 module i3c_bus_monitor
-  import i3c_pkg::*;
+  import i3c_pkg::bus_state_t;
 (
     input logic clk_i,
     input logic rst_ni,

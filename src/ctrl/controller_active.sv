@@ -128,7 +128,15 @@ module controller_active
     input logic [19:0] t_su_sta_i,
     input logic [19:0] t_su_sto_i,
     input logic [19:0] t_su_dat_i,
-    input sys_clk_freq_e sys_clk_freq_i
+    // PP mode timing inputs
+    input logic [19:0] t_r_pp_i,
+    input logic [19:0] t_f_pp_i,
+    input logic [19:0] t_high_pp_i,
+    input logic [19:0] t_low_pp_i,
+    input logic [19:0] t_su_pp_i,
+    input logic [19:0] t_hd_pp_i,
+    input logic [19:0] t_casr_i,
+    input logic [19:0] t_cbsr_i
 
 );
 
@@ -332,9 +340,15 @@ module controller_active
       .ctrl_scl_o(ctrl_scl_o[1]),
       .ctrl_sda_o(ctrl_sda_o[1]),
 
-      // PP mode timing inputs
-      .sys_clk_freq_i(sys_clk_freq_i),
-      .mode_i(i3c_trans_mode),
+      // PP mode timing inputs (from CSRs)
+      .t_r_pp_i(t_r_pp_i),
+      .t_f_pp_i(t_f_pp_i),
+      .thigh_pp_i(t_high_pp_i),
+      .tlow_pp_i(t_low_pp_i),
+      .tsu_pp_i(t_su_pp_i),
+      .thd_pp_i(t_hd_pp_i),
+      .t_casr_i(t_casr_i),
+      .t_cbsr_i(t_cbsr_i),
 
       // OD mode timing inputs (from CSRs)
       .thigh_i(t_high_i),

@@ -2,7 +2,8 @@
 
 module controller_standby_i3c
   import controller_pkg::*;
-  import i3c_pkg::*;
+  import i3c_pkg::bus_state_t;
+  import i3c_pkg::i3c_resp_err_status_e;
 #(
     parameter int unsigned TtiRxDescDataWidth = 32,
     parameter int unsigned TtiTxDescDataWidth = 32,

@@ -60,10 +60,12 @@ module tti
     output logic [RxDescDataWidth-1:0] tx_desc_queue_data_o,
     output logic [RxDescThldWidth-1:0] tx_desc_queue_ready_thld_o,
     input  logic [RxDescThldWidth-1:0] tx_desc_queue_ready_thld_i,
+    input  logic                       tx_desc_queue_ready_thld_trig_i,
     output logic                       tx_desc_queue_reg_rst_o,
     input  logic                       tx_desc_queue_reg_rst_we_i,
     input  logic                       tx_desc_queue_reg_rst_data_i,
     input  logic                       tx_desc_queue_full_i,
+    input  logic                       tx_desc_queue_write_i,
 
     // TX data queue
     output logic                   tx_data_queue_req_o,
@@ -72,10 +74,12 @@ module tti
     output logic [RxThldWidth-1:0] tx_data_queue_start_thld_o,
     output logic [RxThldWidth-1:0] tx_data_queue_ready_thld_o,
     input  logic [RxThldWidth-1:0] tx_data_queue_ready_thld_i,
+    input  logic                   tx_data_queue_ready_thld_trig_i,
     output logic                   tx_data_queue_reg_rst_o,
     input  logic                   tx_data_queue_reg_rst_we_i,
     input  logic                   tx_data_queue_reg_rst_data_i,
     input  logic                   tx_data_queue_full_i,
+    input  logic                   tx_data_queue_write_i,
 
     // In-band Interrupt queue
     input  logic                    ibi_queue_full_i,
@@ -117,8 +121,6 @@ module tti
     hwif_tti_o.INTERRUPT_STATUS.IBI_THLD_STAT.we = '0;
     hwif_tti_o.INTERRUPT_STATUS.TRANSFER_ERR_STAT.we = '0;
     hwif_tti_o.INTERRUPT_STATUS.TRANSFER_ABORT_STAT.we = '0;
-    hwif_tti_o.INTERRUPT_STATUS.TX_DESC_THLD_STAT.we = '0;
-    hwif_tti_o.INTERRUPT_STATUS.TX_DATA_THLD_STAT.we = '0;
     hwif_tti_o.INTERRUPT_STATUS.TX_DESC_TIMEOUT.we = '0;
     hwif_tti_o.INTERRUPT_STATUS.RX_DESC_TIMEOUT.we = '0;
     hwif_tti_o.QUEUE_THLD_CTRL.IBI_THLD.next = '0;
@@ -248,8 +250,6 @@ module tti
     hwif_tti_o.INTERRUPT_STATUS.PENDING_INTERRUPT.next = '0;
     hwif_tti_o.INTERRUPT_STATUS.RX_DESC_TIMEOUT.next = '0;
     hwif_tti_o.INTERRUPT_STATUS.TX_DESC_TIMEOUT.next = '0;
-    hwif_tti_o.INTERRUPT_STATUS.TX_DATA_THLD_STAT.next = '0;
-    hwif_tti_o.INTERRUPT_STATUS.TX_DESC_THLD_STAT.next = '0;
     hwif_tti_o.INTERRUPT_STATUS.IBI_THLD_STAT.next = '0;
     hwif_tti_o.INTERRUPT_STATUS.TRANSFER_ABORT_STAT.next = '0;
     hwif_tti_o.INTERRUPT_STATUS.TRANSFER_ERR_STAT.next = '0;
@@ -261,27 +261,33 @@ module tti
   assign hwif_tti_o.STATUS.PROTOCOL_ERROR.next = err_i;
 
   // Interrupts
-  logic [5:0] irqs;
+  logic [7:0] irqs;
 
   // Delay queue write monitor signals by 1 cycle to align them with
   // full/empty/threshold trigger update.
   logic rx_desc_queue_write_r;
   logic rx_data_queue_write_r;
+  logic tx_desc_queue_write_r;
+  logic tx_data_queue_write_r;
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (~rst_ni) begin
       rx_desc_queue_write_r <= '0;
       rx_data_queue_write_r <= '0;
+      tx_desc_queue_write_r <= '0;
+      tx_data_queue_write_r <= '0;
     end else begin
       rx_desc_queue_write_r <= rx_desc_queue_write_i & ~recovery_mode_enabled_i;
       rx_data_queue_write_r <= rx_data_queue_write_i & ~recovery_mode_enabled_i;
+      tx_desc_queue_write_r <= tx_desc_queue_write_i & ~recovery_mode_enabled_i;
+      tx_data_queue_write_r <= tx_data_queue_write_i & ~recovery_mode_enabled_i;
     end
   end
 
   // RX_DESC_STAT
   // set: any write to the RX desc queue
   // clr: any read from the RX desc queue
-  interrupt xintr0 (
+  interrupt rx_desc_stat_intr (
     .clk_i          (clk_i),
     .rst_ni         (rst_ni),
     .irq_i          (rx_desc_queue_write_r),
@@ -296,12 +302,12 @@ module tti
   );
 
   // RX_DESC_THLD_STAT
-  // set: a write to the RX desc queue an threshold exceeded
+  // set: a write to the RX desc queue and threshold exceeded
   // clr: any read from the RX desc queue
-  interrupt xintr1 (
+  interrupt rx_desc_thld_stat_intr (
     .clk_i          (clk_i),
     .rst_ni         (rst_ni),
-    .irq_i          (rx_desc_queue_write_r & rx_desc_queue_ready_thld_trig_i),
+    .irq_i          (rx_desc_queue_ready_thld_trig_i),
     .clr_i          (rx_desc_queue_ack_i),
     .irq_force_i    (hwif_tti_i.INTERRUPT_FORCE.RX_DESC_THLD_FORCE.value),
     .sts_o          (hwif_tti_o.INTERRUPT_STATUS.RX_DESC_THLD_STAT.next),
@@ -312,27 +318,67 @@ module tti
     .irq_o          (irqs[1])
   );
 
-  // RX_DATA_THLD_STAT
-  // set: a write to the RX data queue an threshold exceeded
-  // clr: any read from the RX data queue
-  interrupt xintr2 (
+  // TX_DESC_THLD_STAT
+  // set: a write to the TX desc queue and threshold exceeded (software filling TX desc)
+  // clr: any read from the TX desc queue (desc being consumed)
+  interrupt tx_desc_thld_stat_intr (
     .clk_i          (clk_i),
     .rst_ni         (rst_ni),
-    .irq_i          (rx_data_queue_write_r & rx_data_queue_ready_thld_trig_i),
-    .clr_i          (rx_data_queue_ack_i),
+    .irq_i          (tx_desc_queue_ready_thld_trig_i),
+    .clr_i          (tx_desc_queue_ack_i & !tx_desc_queue_ready_thld_trig_i),
+    .irq_force_i    (hwif_tti_i.INTERRUPT_FORCE.TX_DESC_THLD_FORCE.value),
+    .sts_o          (hwif_tti_o.INTERRUPT_STATUS.TX_DESC_THLD_STAT.next),
+    .sts_we_o       (hwif_tti_o.INTERRUPT_STATUS.TX_DESC_THLD_STAT.we),
+    .sts_i          (hwif_tti_i.INTERRUPT_STATUS.TX_DESC_THLD_STAT.value),
+    .sts_ena_i      (hwif_tti_i.INTERRUPT_ENABLE.TX_DESC_THLD_STAT_EN.value),
+    .sig_ena_i      ('1),
+    .irq_o          (irqs[2])
+  );
+
+  // RX_DATA_THLD_STAT
+  // set: a write to the RX data queue and threshold exceeded
+  // clr: any read from the RX data queue
+
+  // NOTE: changed clr_i, to add "& !rx_data_queue_ready_thld_trig_i" so that it keeps RX_DATA_THLD_STAT high if
+  // # of entries in fifo is >= RX_BUF_THLD from rx_data_queue_ready_thld_trig_i
+  interrupt rx_data_thld_stat_intr (
+    .clk_i          (clk_i),
+    .rst_ni         (rst_ni),
+    .irq_i          (rx_data_queue_ready_thld_trig_i),
+    .clr_i          (rx_data_queue_ack_i & !rx_data_queue_ready_thld_trig_i),
     .irq_force_i    (hwif_tti_i.INTERRUPT_FORCE.RX_DATA_THLD_FORCE.value),
     .sts_o          (hwif_tti_o.INTERRUPT_STATUS.RX_DATA_THLD_STAT.next),
     .sts_we_o       (hwif_tti_o.INTERRUPT_STATUS.RX_DATA_THLD_STAT.we),
     .sts_i          (hwif_tti_i.INTERRUPT_STATUS.RX_DATA_THLD_STAT.value),
     .sts_ena_i      (hwif_tti_i.INTERRUPT_ENABLE.RX_DATA_THLD_STAT_EN.value),
     .sig_ena_i      ('1),
-    .irq_o          (irqs[2])
+    .irq_o          (irqs[3])
+  );
+
+  // TX_DATA_THLD_STAT
+  // set: a write to the TX data queue and threshold exceeded (software filling TX data)
+  // clr: any read from the TX data queue (data being consumed)
+
+  // NOTE: uses same pattern as RX_DATA_THLD_STAT - keeps TX_DATA_THLD_STAT high if
+  // # of entries in fifo is >= TX_DATA_THLD from tx_data_queue_ready_thld_trig_i
+  interrupt tx_data_thld_stat_intr (
+    .clk_i          (clk_i),
+    .rst_ni         (rst_ni),
+    .irq_i          (tx_data_queue_ready_thld_trig_i),
+    .clr_i          (tx_data_queue_ack_i & !tx_data_queue_ready_thld_trig_i),
+    .irq_force_i    (hwif_tti_i.INTERRUPT_FORCE.TX_DATA_THLD_FORCE.value),
+    .sts_o          (hwif_tti_o.INTERRUPT_STATUS.TX_DATA_THLD_STAT.next),
+    .sts_we_o       (hwif_tti_o.INTERRUPT_STATUS.TX_DATA_THLD_STAT.we),
+    .sts_i          (hwif_tti_i.INTERRUPT_STATUS.TX_DATA_THLD_STAT.value),
+    .sts_ena_i      (hwif_tti_i.INTERRUPT_ENABLE.TX_DATA_THLD_STAT_EN.value),
+    .sig_ena_i      ('1),
+    .irq_o          (irqs[4])
   );
 
   // IBI_DONE
-  // set: an IBI has been transmitter to the host
+  // set: an IBI has been transmitted to the host
   // clr: read LAST_IBI_STATUS
-  interrupt xintr3 (
+  interrupt ibi_done_intr (
     .clk_i          (clk_i),
     .rst_ni         (rst_ni),
     .irq_i          (ibi_status_we_i),
@@ -343,13 +389,13 @@ module tti
     .sts_i          (hwif_tti_i.INTERRUPT_STATUS.IBI_DONE.value),
     .sts_ena_i      (hwif_tti_i.INTERRUPT_ENABLE.IBI_DONE_EN.value),
     .sig_ena_i      ('1),
-    .irq_o          (irqs[3])
+    .irq_o          (irqs[5])
   );
 
   // TX_DESC_COMPLETE
   // set: A private read transfer has completed
   // clr: None, need to clear via INTERRUPT_STATUS
-  interrupt xintr4 (
+  interrupt tx_desc_complete_intr (
     .clk_i          (clk_i),
     .rst_ni         (rst_ni),
     .irq_i          (~recovery_mode_enabled_i & tx_pr_end_i),
@@ -360,13 +406,13 @@ module tti
     .sts_i          (hwif_tti_i.INTERRUPT_STATUS.TX_DESC_COMPLETE.value),
     .sts_ena_i      (hwif_tti_i.INTERRUPT_ENABLE.TX_DESC_COMPLETE_EN.value),
     .sig_ena_i      ('1),
-    .irq_o          (irqs[4])
+    .irq_o          (irqs[6])
   );
 
   // TX_DESC_STAT
   // set: A private read transfer has started
   // clr: None, need to clear via INTERRUPT_STATUS
-  interrupt xintr5 (
+  interrupt tx_desc_stat_intr (
     .clk_i          (clk_i),
     .rst_ni         (rst_ni),
     .irq_i          (~recovery_mode_enabled_i & tx_pr_start_i),
@@ -377,7 +423,7 @@ module tti
     .sts_i          (hwif_tti_i.INTERRUPT_STATUS.TX_DESC_STAT.value),
     .sts_ena_i      (hwif_tti_i.INTERRUPT_ENABLE.TX_DESC_STAT_EN.value),
     .sig_ena_i      ('1),
-    .irq_o          (irqs[5])
+    .irq_o          (irqs[7])
   );
 
   // Interrupt output

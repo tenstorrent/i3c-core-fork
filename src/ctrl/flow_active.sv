@@ -172,6 +172,7 @@ module flow_active
   regular_trans_desc_t regular_cmd_desc;
   combo_trans_desc_t combo_cmd_desc;
   addr_assign_desc_t addr_cmd_desc;
+  internal_control_desc_t internal_cmd_desc;
   logic [63:0] cmd_desc;
 
   // Values extracted from the Command Descriptor
@@ -181,6 +182,8 @@ module flow_active
   logic [3:0] cmd_tid;
   logic [15:0] data_length;
   logic imm_use_def_byte;
+  logic wroc;
+  logic toc;
 
   // CCC-specific signals
   logic cmd_present;  // Command Present bit - indicates CCC
@@ -197,6 +200,13 @@ module flow_active
 
   // DAT table
   dat_entry_t dat_rdata;
+  // Register DAT data to align with dat_read_valid_d timing.
+  // Previously only dat_read_valid_hw_o was registered (to dat_read_valid_d),
+  // but dat_rdata_hw_i was captured combinationally. This caused incorrect data
+  // capture when the FSM transitioned out of FetchDAT while dat_read_valid_d
+  // was still high, since dat_index_hw_o would change and dat_rdata_hw_i would
+  // reflect the wrong address.
+  logic [63:0] dat_rdata_hw_i_reg;
   logic dat_captured, dat_read_valid_d;
 
   // DCT table
@@ -241,27 +251,88 @@ module flow_active
   assign regular_cmd_desc = cmd_desc;
   assign combo_cmd_desc = cmd_desc;
   assign addr_cmd_desc = cmd_desc;
+  assign internal_cmd_desc = cmd_desc;
 
   // Initialize descriptor's reserved field
   assign resp_desc.__rsvd23_16 = '0;
 
-  // Assign generic command fields to generic signals
-  assign dev_index = cmd_desc[20:16];
-  assign cmd_tid = cmd_desc[6:3];
-  assign cmd_dir = cmd_desc[29] ? Read : Write;
+  // always guaranteed to be in the bottom 3 bits of the command descriptor, regardless of the command descriptor type
   assign cmd_attr = i3c_cmd_attr_e'(cmd_desc[2:0]);
+
+  // Extract command fields from descriptor structs based on command attribute type
+  // Note: Most fields are at the same bit positions across descriptor types, so the
+  // synthesizer will optimize away redundant muxes. Using struct accessors improves
+  // readability and future-proofs against spec changes.
+  always_comb begin
+    unique case (cmd_attr)
+      RegularTransfer: begin
+        dev_index = regular_cmd_desc.dev_idx;
+        cmd_tid = regular_cmd_desc.tid;
+        cmd_dir = regular_cmd_desc.rnw ? Read : Write;
+        cmd_present = regular_cmd_desc.cp;
+        ccc_code = regular_cmd_desc.cmd;
+        i3c_trans_mode_o = regular_cmd_desc.mode;
+        toc = regular_cmd_desc.toc;
+        wroc = regular_cmd_desc.wroc;
+      end
+      ImmediateDataTransfer: begin
+        dev_index = immediate_cmd_desc.dev_idx;
+        cmd_tid = immediate_cmd_desc.tid;
+        cmd_dir = immediate_cmd_desc.rnw ? Read : Write;
+        cmd_present = immediate_cmd_desc.cp;
+        ccc_code = immediate_cmd_desc.cmd;
+        i3c_trans_mode_o = immediate_cmd_desc.mode;
+        toc = immediate_cmd_desc.toc;
+        wroc = immediate_cmd_desc.wroc;
+      end
+      ComboTransfer: begin
+        dev_index = combo_cmd_desc.dev_idx;
+        cmd_tid = combo_cmd_desc.tid;
+        cmd_dir = combo_cmd_desc.rnw ? Read : Write;
+        cmd_present = combo_cmd_desc.cp;
+        ccc_code = combo_cmd_desc.cmd;
+        i3c_trans_mode_o = combo_cmd_desc.mode;
+        toc = combo_cmd_desc.toc;
+        wroc = combo_cmd_desc.wroc;
+      end
+      AddressAssignment: begin
+        dev_index = addr_cmd_desc.dev_idx;
+        cmd_tid = addr_cmd_desc.tid;
+        cmd_dir = Write;  // Address assignment is always write
+        cmd_present = 1'b1;  // Address assignment always has CCC
+        ccc_code = addr_cmd_desc.cmd;
+        i3c_trans_mode_o = sdr0;  // Address assignment uses SDR0
+        toc = addr_cmd_desc.toc;
+        wroc = addr_cmd_desc.wroc;
+      end
+      InternalControl: begin
+        dev_index = '0;  // Internal control doesn't target a device
+        cmd_tid = internal_cmd_desc.tid;
+        cmd_dir = Write;
+        cmd_present = 1'b0;
+        ccc_code = '0;
+        i3c_trans_mode_o = sdr0;
+        toc = 1'b0;  // Internal control has no toc/wroc
+        wroc = 1'b0;
+      end
+      default: begin
+        dev_index = '0;
+        cmd_tid = '0;
+        cmd_dir = Write;
+        cmd_present = 1'b0;
+        ccc_code = '0;
+        i3c_trans_mode_o = sdr0;
+        toc = 1'b0;
+        wroc = 1'b0;
+      end
+    endcase
+  end
+
+  // Derived signal: Direct CCC if MSB of CCC code is set
+  assign is_direct_ccc = ccc_code[7];
 
   // Assign DAT entry specific signals
   assign i2c_cmd = dat_rdata.device;
-
-  // Assign CCC-specific signals from command descriptor
-  // cp and cmd are at the same bit positions in Immediate, Regular, and Combo descriptors
-  assign cmd_present = cmd_desc[15];      // CP bit - Command Present
-  assign ccc_code = cmd_desc[14:7];       // CCC / HDR command code
-  assign is_direct_ccc = ccc_code[7];     // MSB: 1 = Direct CCC, 0 = Broadcast CCC
-
-  // Transfer mode is at bits 28:26 in all descriptor types (Immediate, Regular, Combo)
-  assign i3c_trans_mode_o = i3c_trans_mode_e'(cmd_desc[28:26]);
 
   // Assign constants
   // TODO: Add control logic to constant signals
@@ -568,7 +639,7 @@ module flow_active
         end
         // Send stop condition after last byte if TOC is set to STOP
         if (transfer_cnt == data_length + (BytesBeforeImmData - 1)) begin
-          fmt_flag_stop_after_o = immediate_cmd_desc.toc;
+          fmt_flag_stop_after_o = toc;
         end
         // Disable FIFO valid whenever I2C Controller is not ready or an immediate transfer is finished
         if (fmt_fifo_rready_i | (transfer_cnt == data_length + BytesBeforeImmData)) begin
@@ -586,19 +657,15 @@ module flow_active
         // Push accumulated word when queue has space
         if (~rx_queue_full_i) begin
           rx_queue_wvalid_o = 1'b1;
-          // Handle partial word (flush) vs full word
-          if (rx_byte_cnt_q == 2'd0) begin
-            // Full 4-byte word (counter wrapped to 0 after accumulating 4th byte)
-            rx_queue_wdata_o = rx_word_accum_q;
-          end else begin
+            
+          unique case (rx_byte_cnt_q)
+            2'd0: rx_queue_wdata_o = rx_word_accum_q; // Full 4-byte word (counter wrapped to 0 after accumulating 4th byte)
             // Partial word - pad with zeros
-            unique case (rx_byte_cnt_q)
-              2'd1: rx_queue_wdata_o = {24'd0, rx_word_accum_q[7:0]};
-              2'd2: rx_queue_wdata_o = {16'd0, rx_word_accum_q[15:0]};
-              2'd3: rx_queue_wdata_o = {8'd0, rx_word_accum_q[23:0]};
-              default: rx_queue_wdata_o = rx_word_accum_q;
-            endcase
-          end
+            2'd1: rx_queue_wdata_o = {24'd0, rx_word_accum_q[7:0]};
+            2'd2: rx_queue_wdata_o = {16'd0, rx_word_accum_q[15:0]};
+            2'd3: rx_queue_wdata_o = {8'd0, rx_word_accum_q[23:0]};
+          endcase
+
           // Reset accumulator for next word
           rx_byte_cnt_d = 2'd0;
           rx_word_accum_d = 32'd0;
@@ -696,12 +763,15 @@ module flow_active
         i3c_tx_is_addr_o = 1'b0;
 
         // STOP after last data byte if TOC is set
-        // Use appropriate toc field based on command attribute
         if (transfer_cnt == data_length - 32'd1) begin
-          if ((cmd_attr == ImmediateDataTransfer) ? immediate_cmd_desc.toc : regular_cmd_desc.toc) begin
+          if (toc) begin
             i3c_start_stop_o = Stop;
             bus_active_d = 1'b0;  // Bus released
           end
+          else begin
+            i3c_start_stop_o = RepeatedStart;
+          end
+          
         end
       end
       // I3CDataRead: Data phase only - receive bytes from target
@@ -722,7 +792,8 @@ module flow_active
         resp_queue_wvalid_o = 1'b0;
         resp_desc.err_status = resp_err_status_d;
         resp_desc.tid = cmd_tid;
-        resp_desc.data_length = resp_data_length_q;
+        // For writes, we return remaining data length, for reads we return recieved data length (I3C HCI 8.5)
+        resp_desc.data_length = cmd_dir == Write ? data_length - transfer_cnt : transfer_cnt;
 
         if (resp_queue_wready_i) begin
           resp_queue_wvalid_o = 1'b1;
@@ -777,7 +848,7 @@ module flow_active
       I2CWriteImmediate: begin
         if (transfer_cnt == data_length + BytesBeforeImmData) begin
           // TODO: Do not generate Response Descriptor if WROC field of the Command Descriptor is set to 0
-          state_next = WriteResp;
+          state_next = wroc ? WriteResp : Idle;
         end
       end
       // I3CWriteImmediate removed - now uses BroadcastAddr → TargetAddr → I3CDataWrite
@@ -798,7 +869,7 @@ module flow_active
           // Counter now starts at 0 for data phase
           if (i3c_rx_byte_last_i) begin
             // Transfer complete
-            state_next = WriteResp;
+            state_next = wroc ? WriteResp : Idle;;
           end else begin
             // More data to receive
             if (~i2c_cmd) begin
@@ -867,7 +938,7 @@ module flow_active
           end else if (is_direct_ccc) begin
             state_next = TargetAddr;  // Direct CCC needs target address
           end else if (data_length == 0) begin
-            state_next = WriteResp;   // No data, done
+            state_next = wroc ? WriteResp : Idle;;   // No data, done
           end else begin
             // Broadcast CCC with data
             if (cmd_dir == Read) begin
@@ -885,7 +956,7 @@ module flow_active
           if (is_direct_ccc) begin
             state_next = TargetAddr;
           end else if (data_length == 0) begin
-            state_next = WriteResp;
+            state_next = wroc ? WriteResp : Idle;;
           end else begin
             // Broadcast CCC with data
             if (cmd_dir == Read) begin
@@ -901,22 +972,16 @@ module flow_active
       I3CAddressAssignment: begin
         // Complete after sending both static addr and dynamic addr
         // TODO: Support multi-target using addr_cmd_desc.dev_count
-        // TODO: Address command descriptor doesn't have I3C Speed Mode, so right now it's going to sdr1 instead of sdr0
-        // Not fatal but yeah 
         if (i3c_tx_ready_i && transfer_cnt == 32'd1) begin
-          state_next = WriteResp;
+          state_next = wroc ? WriteResp : Idle;
         end
       end
       // I3CDataWrite: Data phase only (counter starts at 0)
       I3CDataWrite: begin
         // Done when all data_length bytes sent
         if (i3c_tx_ready_i && transfer_cnt == data_length - 32'd1) begin
-          // For ImmediateDataTransfer, check wroc to decide if we write response
-          if (cmd_attr == ImmediateDataTransfer) begin
-            state_next = immediate_cmd_desc.wroc ? WriteResp : Idle;
-          end else begin
-            state_next = WriteResp;
-          end
+          // Check wroc to decide if we write response
+          state_next = wroc ? WriteResp : Idle;
         end else if ((transfer_cnt & 32'd3) == 32'd3 && i3c_tx_ready_i) begin
           // Refill TX FIFO every 4 bytes (not needed for ImmediateDataTransfer since max 4 bytes)
           if (cmd_attr != ImmediateDataTransfer) begin

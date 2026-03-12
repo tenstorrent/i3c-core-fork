@@ -6,7 +6,6 @@
 
 module configuration
     import i3c_pkg::start_stop_e;
-    import i3c_pkg::sys_clk_freq_e;
     import I3CCSR_pkg::CONTROLLER_SUPPORT;
 (
     input logic clk_i,
@@ -32,8 +31,15 @@ module configuration
     output logic [19:0] t_su_sta_o,
     output logic [19:0] t_su_sto_o,
 
-    // I3C PP mode timing (frequency selection)
-    output sys_clk_freq_e sys_clk_freq_o,
+    // I3C PP mode timing outputs
+    output logic [19:0] t_r_pp_o,
+    output logic [19:0] t_f_pp_o,
+    output logic [19:0] t_high_pp_o,
+    output logic [19:0] t_low_pp_o,
+    output logic [19:0] t_su_pp_o,
+    output logic [19:0] t_hd_pp_o,
+    output logic [19:0] t_casr_o,
+    output logic [19:0] t_cbsr_o,
 
     // Bus timers
     output logic [19:0] t_bus_free_o,
@@ -152,6 +158,16 @@ module configuration
   assign phy_mux_select_o[0] = i3c_active_en_o | i3c_standby_en_o;
   assign phy_mux_select_o[1] = i2c_standby_en_o | i3c_standby_en_o;
 
+  // Configuration: I3C PP mode timing
+  assign t_r_pp_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_R_PP_REG.T_R_PP.value);
+  assign t_f_pp_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_F_PP_REG.T_F_PP.value);
+  assign t_high_pp_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_HIGH_PP_REG.T_HIGH_PP.value);
+  assign t_low_pp_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_LOW_PP_REG.T_LOW_PP.value);
+  assign t_su_pp_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_SU_PP_REG.T_SU_PP.value);
+  assign t_hd_pp_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_HD_PP_REG.T_HD_PP.value);
+  assign t_casr_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_CASR_REG.T_CASR.value);
+  assign t_cbsr_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_CBSR_REG.T_CBSR.value);
+  
   // Configuration: bus_monitor
   assign t_su_dat_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_SU_DAT_REG.T_SU_DAT.value);
   assign t_hd_dat_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_HD_DAT_REG.T_HD_DAT.value);
@@ -164,8 +180,7 @@ module configuration
   assign t_su_sta_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_SU_STA_REG.T_SU_STA.value);
   assign t_su_sto_o = 20'(hwif_out_i.I3C_EC.SoCMgmtIf.T_SU_STO_REG.T_SU_STO.value);
 
-  // Configuration: I3C PP mode timing
-  assign sys_clk_freq_o = sys_clk_freq_e'(hwif_out_i.I3C_EC.SoCMgmtIf.SYS_CLK_FREQ_REG.SYS_CLK_FREQ.value);
+
 
   // Configuration: bus_timers
   // 20 bits is enough to measure 1ms for clock speed 1GHz.

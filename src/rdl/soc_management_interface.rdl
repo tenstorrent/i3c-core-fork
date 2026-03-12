@@ -10,7 +10,7 @@ regfile SoCManagementInterfaceRegisters {
             desc = "Capability Structure Length in DWORDs";
             sw = r;
             hw = r;
-            reset = 16'h0018;
+            reset = 16'h0020;
         } CAP_LENGTH[23:8];
         field {
             name = "CAP_ID";
@@ -357,6 +357,87 @@ regfile SoCManagementInterfaceRegisters {
             reset = 20'h00000;
         } T_SU_STO[19:0];
     } T_SU_STO_REG;
+    // Push-Pull Mode Timing Registers
+    reg {
+        name = "PP Rise Time";
+        field {
+            name = "T_R_PP";
+            desc = "Rise time in Push-Pull mode in clock units (typically 0 for PP)";
+            sw = rw;
+            hw = r;
+            reset = 20'h00000;
+        } T_R_PP[19:0];
+    } T_R_PP_REG;
+    reg {
+        name = "PP Fall Time";
+        field {
+            name = "T_F_PP";
+            desc = "Fall time in Push-Pull mode in clock units (typically 0 for PP)";
+            sw = rw;
+            hw = r;
+            reset = 20'h00000;
+        } T_F_PP[19:0];
+    } T_F_PP_REG;
+    reg {
+        name = "PP High Period";
+        field {
+            name = "T_HIGH_PP";
+            desc = "High period of SCL in Push-Pull mode in clock units";
+            sw = rw;
+            hw = r;
+            reset = 20'h00004;  // Default for 12.5MHz at 100MHz sys_clk
+        } T_HIGH_PP[19:0];
+    } T_HIGH_PP_REG;
+    reg {
+        name = "PP Low Period";
+        field {
+            name = "T_LOW_PP";
+            desc = "Low period of SCL in Push-Pull mode in clock units";
+            sw = rw;
+            hw = r;
+            reset = 20'h00004;  // Default for 12.5MHz at 100MHz sys_clk
+        } T_LOW_PP[19:0];
+    } T_LOW_PP_REG;
+    reg {
+        name = "PP Data Setup Time";
+        field {
+            name = "T_SU_PP";
+            desc = "Data setup time in Push-Pull mode in clock units";
+            sw = rw;
+            hw = r;
+            reset = 20'h00002;
+        } T_SU_PP[19:0];
+    } T_SU_PP_REG;
+    reg {
+        name = "PP Data Hold Time";
+        field {
+            name = "T_HD_PP";
+            desc = "Data hold time in Push-Pull mode in clock units";
+            sw = rw;
+            hw = r;
+            reset = 20'h00002;
+        } T_HD_PP[19:0];
+    } T_HD_PP_REG;
+    reg {
+        name = "PP Controller Abort/Stop Time";
+        field {
+            name = "T_CASR";
+            desc = "Controller Abort/Stop time from SCL rising in clock units. Used for tHoldStart and tSetupStop.";
+            sw = rw;
+            hw = r;
+            reset = 20'h00002;
+        } T_CASR[19:0];
+    } T_CASR_REG;
+    reg {
+        name = "PP Controller Bit Start Time";
+        field {
+            name = "T_CBSR";
+            desc = "Controller Bit Start time from SCL rising in clock units. Used for tSetupStart.";
+            sw = rw;
+            hw = r;
+            reset = 20'h00002;
+        } T_CBSR[19:0];
+    } T_CBSR_REG;
     reg {
         name = "";
         field {

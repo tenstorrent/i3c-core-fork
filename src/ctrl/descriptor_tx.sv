@@ -101,12 +101,14 @@ module descriptor_tx #(
     end
   end
 
-  // data len is in the upper half of the tx_descriptor
   assign data_len = tx_descriptor[31:16];
   assign data_len_words = TtiTxDescDataWidth'(data_len >> 2);
   // Add 1 to depth, because there is one word in the Nto8 converter
-  assign tx_start = ~tx_pending && descriptor_valid &&
-                    (TtiTxDescDataWidth'(tti_tx_queue_depth_i+1'b1) >= data_len_words);
+  // assign tx_start = ~tx_pending && descriptor_valid &&
+  //                   (TtiTxDescDataWidth'(tti_tx_queue_depth_i+1'b1) >= data_len_words);
+
+  // made is so that you do not need to have all data in the fifo before starting it..
+  assign tx_start = ~tx_pending && descriptor_valid;
 
   always_ff @(posedge clk_i or negedge rst_ni) begin : proc_tx_pending
     if (!rst_ni) begin
